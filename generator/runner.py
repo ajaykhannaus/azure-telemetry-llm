@@ -30,7 +30,13 @@ try:
 except ImportError:
     pass
 
-from generator.synthetic_generator import generate_event, traffic_multiplier  # noqa: E402
+from generator.synthetic_generator import (  # noqa: E402
+    generate_event,
+    traffic_multiplier,
+    maybe_inject_anomaly,
+    get_anomaly_summary,
+    get_client_budget_status,
+)
 from generator.kafka_publisher import KafkaPublisher  # noqa: E402
 import generator.otel_metrics as otel  # noqa: E402
 import generator.pod_metrics_simulator as pod_sim  # noqa: E402
@@ -127,7 +133,11 @@ def run_one_batch() -> dict[str, Any]:
     batch_size = _batch_size()
     error_rate = _current_error_rate()
 
+    # Advance the anomaly state machine once per batch
+    maybe_inject_anomaly()
+
     successes = errors = 0
+    sla_breaches = 0
     total_cost = 0.0
     total_tokens = 0
 
@@ -150,6 +160,9 @@ def run_one_batch() -> dict[str, Any]:
             else:
                 errors += 1
 
+            if event.get("sla_breached"):
+                sla_breaches += 1
+
             total_cost += event["cost_usd"]
             total_tokens += event["total_tokens"]
 
@@ -165,23 +178,36 @@ def run_one_batch() -> dict[str, Any]:
     # Drive HPA scaling in the pod simulator based on current throughput
     pod_sim.update_load_signal(batch_size / BATCH_INTERVAL_S)
 
+    anomaly = get_anomaly_summary()
+    budget_status = get_client_budget_status()
+    exhausted_clients = [c for c, s in budget_status.items() if s["pct"] >= 95]
+
     summary: dict[str, Any] = {
-        "batch_size": batch_size,
-        "successes": successes,
-        "errors": errors,
-        "error_rate": round(errors / batch_size, 4) if batch_size else 0.0,
-        "total_cost_usd": round(total_cost, 6),
-        "total_tokens": total_tokens,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "batch_size":        batch_size,
+        "successes":         successes,
+        "errors":            errors,
+        "sla_breaches":      sla_breaches,
+        "error_rate":        round(errors / batch_size, 4) if batch_size else 0.0,
+        "sla_breach_rate":   round(sla_breaches / batch_size, 4) if batch_size else 0.0,
+        "total_cost_usd":    round(total_cost, 6),
+        "total_tokens":      total_tokens,
+        "anomaly":           anomaly,
+        "budget_alerts":     exhausted_clients,
+        "timestamp":         datetime.now(timezone.utc).isoformat(),
     }
-    logger.info(
-        "batch: size=%d success=%d error=%d cost=$%.5f tokens=%d",
-        batch_size,
-        successes,
-        errors,
-        total_cost,
-        total_tokens,
+
+    log_parts = (
+        f"batch={batch_size} ok={successes} err={errors} "
+        f"sla_breach={sla_breaches} cost=${total_cost:.5f} tokens={total_tokens}"
     )
+    if anomaly["degraded_model"]:
+        log_parts += f" ⚠️ degraded={anomaly['degraded_model']}"
+    if anomaly["cascade_active"]:
+        log_parts += " 🔴 CASCADE_ACTIVE"
+    if exhausted_clients:
+        log_parts += f" 💰 budget_exhausted={exhausted_clients}"
+
+    logger.info(log_parts)
     return summary
 
 

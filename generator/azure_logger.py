@@ -83,20 +83,45 @@ def log_event(event: dict[str, Any]) -> None:
     logging.getLogger("generator.telemetry_event").info(
         "telemetry_event",
         extra={
-            "event_type":        "telemetry_event",
-            "request_id":        event.get("request_id"),
-            "model_name":        event.get("model_name"),
-            "model_provider":    event.get("model_provider"),
-            "operation_name":    event.get("operation_name"),
-            "status":            event.get("status"),
-            "latency_ms":        event.get("latency_ms"),
-            "cost_usd":          event.get("cost_usd"),
-            "total_tokens":      event.get("total_tokens"),
-            "prompt_tokens":     event.get("prompt_tokens"),
-            "completion_tokens": event.get("completion_tokens"),
-            "error_type":        event.get("error_type"),
-            "http_status_code":  event.get("http_status_code"),
-            "client_name":       event.get("client_name"),
+            # ── Identity ─────────────────────────────────────────────────
+            "event_type":          "telemetry_event",
+            "request_id":          event.get("request_id"),
+            "session_id":          event.get("session_id"),
+            "turn_number":         event.get("turn_number"),
+            "user_id":             event.get("user_id"),
+            "client_name":         event.get("client_name"),
+            "data_classification": event.get("data_classification"),
+
+            # ── Routing ──────────────────────────────────────────────────
+            "model_name":          event.get("model_name"),
+            "model_provider":      event.get("model_provider"),
+            "capability_tier":     event.get("capability_tier"),
+            "routing_reason":      event.get("routing_reason"),
+            "operation_name":      event.get("operation_name"),
+            "region":              event.get("region"),
+
+            # ── Performance ──────────────────────────────────────────────
+            "latency_ms":          event.get("latency_ms"),
+            "sla_tier":            event.get("sla_tier"),
+            "sla_target_ms":       event.get("sla_target_ms"),
+            "sla_breached":        event.get("sla_breached"),
+
+            # ── Tokens & cost ────────────────────────────────────────────
+            "prompt_tokens":       event.get("prompt_tokens"),
+            "completion_tokens":   event.get("completion_tokens"),
+            "cache_read_tokens":   event.get("cache_read_tokens"),
+            "total_tokens":        event.get("total_tokens"),
+            "cost_usd":            event.get("cost_usd"),
+            "daily_spend_usd":     event.get("daily_spend_usd"),
+            "budget_exhausted":    event.get("budget_exhausted"),
+
+            # ── Outcome ──────────────────────────────────────────────────
+            "status":              event.get("status"),
+            "http_status_code":    event.get("http_status_code"),
+            "error_type":          event.get("error_type"),
+            "error_category":      event.get("error_category"),
+            "is_retried":          event.get("is_retried"),
+            "retry_count":         event.get("retry_count"),
         },
     )
 
