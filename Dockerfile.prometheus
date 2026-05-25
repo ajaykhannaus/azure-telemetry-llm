@@ -1,0 +1,18 @@
+# Prometheus scraper — runs as a Container App on Azure.
+# Scrapes the ai-telemetry-runner Container App and remote_writes
+# to Azure Managed Prometheus. No local Prometheus instance needed.
+#
+# SCRAPE_TARGET env var is set by the Container App env var to the runner FQDN.
+
+FROM prom/prometheus:latest
+
+COPY prometheus.yml /etc/prometheus/prometheus.yml
+
+# Override the scrape target at runtime via SCRAPE_TARGET env var.
+# The entrypoint below replaces the placeholder in prometheus.yml.
+COPY azure/prometheus-entrypoint.sh /prometheus-entrypoint.sh
+
+USER root
+RUN chmod +x /prometheus-entrypoint.sh
+
+ENTRYPOINT ["/prometheus-entrypoint.sh"]
