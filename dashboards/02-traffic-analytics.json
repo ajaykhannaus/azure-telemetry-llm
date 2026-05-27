@@ -183,7 +183,9 @@
           },
           "expr": "sum by (model_name) (rate(ai_gateway_request_count_total{tenant_id=~\"$tenant\"}[2m])) * 60",
           "legendFormat": "{{model_name}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -235,7 +237,9 @@
           },
           "expr": "sum by (tenant_id) (rate(ai_gateway_request_count_total[2m])) * 60",
           "legendFormat": "{{tenant_id}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -287,7 +291,9 @@
           },
           "expr": "sum by (operation_name) (rate(ai_gateway_request_count_total{tenant_id=~\"$tenant\"}[2m])) * 60",
           "legendFormat": "{{operation_name}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -448,7 +454,9 @@
           },
           "expr": "sum by (error_type) (rate(ai_gateway_exception_count_total{tenant_id=~\"$tenant\"}[5m]))",
           "legendFormat": "{{error_type}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -607,7 +615,9 @@
           },
           "expr": "sum by (tenant_id) (rate(ai_gateway_request_count_total{status=\"error\",tenant_id=~\"$tenant\"}[5m])) / clamp_min(sum by (tenant_id) (rate(ai_gateway_request_count_total{tenant_id=~\"$tenant\"}[5m])),1e-9) * 100",
           "legendFormat": "{{tenant_id}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -650,10 +660,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum by (routing_reason) (count_over_time({service_name=~\".+\"} | json | event_type = \"telemetry_event\" [1h]))",
+          "expr": "sum by (routing_reason) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" [1h]))",
           "legendFormat": "{{routing_reason}}",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "queryType": "instant"
         }
       ]
     },
@@ -698,8 +709,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "{service_name=~\".+\"} | json | event_type = \"telemetry_event\" | tenant_id =~ \"$tenant\"",
-          "refId": "A"
+          "expr": "{service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | line_format \"{{.timestamp}} [{{.model_name}}] {{.operation_name}} status={{.status}} lat={{.latency_ms}}ms tenant={{.tenant_id}} routing={{.routing_reason}}\"",
+          "refId": "A",
+          "queryType": "range",
+          "maxLines": 500,
+          "legendFormat": ""
         }
       ]
     }

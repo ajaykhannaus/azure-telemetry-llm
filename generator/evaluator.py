@@ -49,10 +49,13 @@ _EVAL_MODEL             = os.getenv("EVAL_MODEL",              "gpt-4o-mini")
 _EVAL_SAMPLE_RATE       = float(os.getenv("EVAL_SAMPLE_RATE",  "0.01"))
 _EVAL_DAILY_BUDGET      = int(os.getenv("EVAL_DAILY_TOKEN_BUDGET", "50000"))
 _EVAL_TIMEOUT_S         = float(os.getenv("EVAL_TIMEOUT_S",    "15"))
+_MOCK_MODE              = os.getenv("ALLOW_MOCK_MODE", "").lower() in ("true", "1", "yes")
 
 # Lazy-detect enabled state: enabled only when API key is present, unless
 # explicitly overridden.
 def _eval_enabled() -> bool:
+    if _MOCK_MODE:
+        return True
     override = os.getenv("EVAL_ENABLED", "").lower()
     if override in ("true", "1", "yes"):
         return True
@@ -189,6 +192,29 @@ class Evaluator:
                 self._enabled = False
         return self._client
 
+    def _mock_judge(
+        self,
+        prompt_text: str,
+        response_text: str,
+        event: dict[str, Any],
+    ) -> EvalResult:
+        """Deterministic-ish mock scores for local dashboard development."""
+        seed = hash((event.get("request_id"), prompt_text[:40])) & 0xFFFF
+        rng = random.Random(seed)
+        if rng.random() < 0.10:
+            result = EvalResult(error="mock_judge_timeout")
+        else:
+            result = EvalResult(
+                faithfulness=round(rng.uniform(3.0, 5.5) if rng.random() < 0.18 else rng.uniform(6.0, 9.8), 1),
+                relevance=round(rng.uniform(6.0, 9.8), 1),
+                groundedness=round(rng.uniform(5.0, 9.0), 1),
+                model="mock-judge",
+                tokens_used=rng.randint(80, 220),
+                latency_ms=round(rng.uniform(40, 180), 1),
+            )
+        self._record(event, result)
+        return result
+
     def _call_judge(
         self,
         prompt_text: str,
@@ -290,8 +316,14 @@ class Evaluator:
             return None
         if not prompt_text or not response_text:
             return None
-        if random.random() > _EVAL_SAMPLE_RATE:
+        sample_rate = 0.25 if _MOCK_MODE else _EVAL_SAMPLE_RATE
+        if random.random() > sample_rate:
             return None
+
+        if _MOCK_MODE:
+            return self._executor.submit(
+                self._mock_judge, prompt_text, response_text, event,
+            )
 
         return self._executor.submit(
             self._call_judge, prompt_text, response_text, event,

@@ -13,11 +13,19 @@ New in v2:
 """
 from __future__ import annotations
 
+import os
 import random
 import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
+
+_MOCK_MODE = os.getenv("ALLOW_MOCK_MODE", "").lower() in ("true", "1", "yes")
+_MOCK_ROUTING_REASONS = (
+    "capability_match", "load_balanced", "latency_optimised",
+    "user_pinned", "cost_optimised", "fallback",
+)
+_mock_routing_idx = 0
 
 # ---------------------------------------------------------------------------
 # Model catalogue — pricing in USD per million tokens
@@ -551,6 +559,59 @@ def get_client_budget_status() -> dict[str, dict[str, float]]:
     return result
 
 
+def _enrich_mock_event(event: dict[str, Any]) -> None:
+    """Boost field diversity so every Grafana dashboard panel has local data."""
+    global _mock_routing_idx
+    if not _MOCK_MODE:
+        return
+
+    # Rotate all routing reasons so Loki bar charts are never sparse.
+    if random.random() < 0.45:
+        event["routing_reason"] = _MOCK_ROUTING_REASONS[_mock_routing_idx % len(_MOCK_ROUTING_REASONS)]
+        _mock_routing_idx += 1
+
+    # Streaming / throughput panels (latency dashboard).
+    if not event.get("streaming") and random.random() < 0.50:
+        lat = float(event["latency_ms"])
+        event["streaming"] = True
+        event["queue_wait_ms"] = round(lat * 0.05, 2)
+        event["first_token_ms"] = round(lat * 0.22, 2)
+        event["stream_response_ms"] = round(lat * 0.38, 2)
+        event["model_inference_ms"] = round(
+            max(0.0, lat - event["queue_wait_ms"] - event["first_token_ms"] - event["stream_response_ms"]), 2,
+        )
+        comp = float(event.get("completion_tokens") or 100)
+        event["tokens_per_second"] = round(
+            comp / max(event["stream_response_ms"] / 1000.0, 0.001), 2,
+        )
+
+    # Budget-exhausted panel (cost dashboard).
+    if random.random() < 0.10:
+        event["budget_exhausted"] = True
+
+    # Cache-read tokens (cost / token-efficiency panels).
+    if float(event.get("cache_read_tokens") or 0) == 0 and random.random() < 0.30:
+        event["cache_read_tokens"] = round(random.uniform(40, 220))
+        event["total_tokens"] = (
+            int(event["prompt_tokens"]) + int(event["completion_tokens"]) + int(event["cache_read_tokens"])
+        )
+
+    # PII / safety dashboards — inject detectable entities into prompts.
+    pii_snippets = (
+        " Contact: jane.doe@example.com",
+        " Phone: 555-123-4567",
+        " SSN: 123-45-6789",
+        " Address: 123 Main St, Boston MA",
+    )
+    prompt = event.get("prompt_text") or ""
+    if random.random() < 0.35:
+        prompt += random.choice(pii_snippets)
+    event["prompt_text"] = prompt
+    event["response_text"] = event.get("response_text") or (
+        f"{event.get('model_name')} completed {event.get('operation_name')}."
+    )
+
+
 def generate_event(error_rate: float = 0.008) -> dict[str, Any]:
     """Return one rich synthetic LLM request event."""
 
@@ -672,7 +733,7 @@ def generate_event(error_rate: float = 0.008) -> dict[str, Any]:
     }[client_name]
     user_email = f"{user_id}@{user_domain}"
 
-    return {
+    event = {
         # ── Identity ─────────────────────────────────────────────────────
         "request_id":        str(uuid.uuid4()),
         "session_id":        session_id,
@@ -726,4 +787,15 @@ def generate_event(error_rate: float = 0.008) -> dict[str, Any]:
         "error_category":    err_info.get("category"),
         "is_retried":        is_retried,
         "retry_count":       retry_count,
+
+        # ── Prompt/response (synthetic — enables PII + eval dashboards locally)
+        "prompt_text":       (
+            f"User request for {operation_name} using {model_name}. "
+            + ("Contact: jane.doe@example.com" if random.random() < 0.12 else "")
+        ),
+        "response_text":     (
+            f"{model_name} completed {operation_name} for tenant {client_name}."
+        ),
     }
+    _enrich_mock_event(event)
+    return event

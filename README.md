@@ -3,6 +3,8 @@
 Production observability pipeline: synthetic (or real) LLM gateway traffic →
 Azure Event Hubs → OpenTelemetry → Grafana (Bucket 1: with distributed tracing).
 
+**New to the project?** Start with [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md) — a junior-developer-friendly walkthrough with **architecture diagrams**, service explanations, and where to read code.
+
 ```
 GitHub push → GitHub Actions  (lint + tests gate → build → push ACR → deploy)
   │

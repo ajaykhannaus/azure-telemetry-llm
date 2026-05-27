@@ -196,8 +196,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(kube_pod_status_phase{namespace=\"ai-gateway-ns\", phase=\"Running\"})",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -253,8 +254,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"ai-gateway-ns\"}",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -318,8 +320,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "kube_deployment_status_replicas_available{namespace=\"ai-gateway-ns\"}",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -383,8 +386,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"ai-gateway-ns\"}[1h]))",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -448,8 +452,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -509,29 +514,19 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "kube_node_status_condition{condition=\"Ready\",status=\"True\"}",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
     {
       "id": 8,
-      "type": "alertlist",
+      "type": "text",
       "title": "Infrastructure Alerts",
       "options": {
-        "alertInstanceLabelFilter": "",
-        "alertName": "",
-        "dashboardAlerts": false,
-        "groupMode": "default",
-        "maxItems": 20,
-        "sortOrder": 1,
-        "stateFilter": {
-          "error": true,
-          "firing": true,
-          "noData": false,
-          "normal": false,
-          "pending": true
-        }
+        "content": "*Requires Grafana Alertmanager \u2014 not configured in local dev.*",
+        "mode": "markdown"
       },
       "gridPos": {
         "x": 20,
@@ -602,7 +597,9 @@
           },
           "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"ai-gateway-ns\"}",
           "legendFormat": "current",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -611,7 +608,9 @@
           },
           "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"ai-gateway-ns\"}",
           "legendFormat": "desired",
-          "refId": "A"
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -620,7 +619,9 @@
           },
           "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"ai-gateway-ns\"}",
           "legendFormat": "min",
-          "refId": "A"
+          "refId": "C",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -629,7 +630,9 @@
           },
           "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"ai-gateway-ns\"}",
           "legendFormat": "max",
-          "refId": "A"
+          "refId": "D",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -681,7 +684,9 @@
           },
           "expr": "sum by (pod) (rate(kube_pod_container_status_restarts_total{namespace=\"ai-gateway-ns\"}[15m]))",
           "legendFormat": "{{pod}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -746,7 +751,9 @@
           },
           "expr": "container_memory_rss{namespace=\"ai-gateway-ns\", container=\"ai-gateway\"}",
           "legendFormat": "{{pod}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -798,7 +805,9 @@
           },
           "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"ai-gateway-ns\", container=\"ai-gateway\"}[2m]))",
           "legendFormat": "{{pod}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -850,7 +859,9 @@
           },
           "expr": "node_memory_MemAvailable_bytes",
           "legendFormat": "available",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -859,7 +870,9 @@
           },
           "expr": "node_memory_MemTotal_bytes",
           "legendFormat": "total",
-          "refId": "A"
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -911,7 +924,9 @@
           },
           "expr": "rate(node_cpu_seconds_total{mode=\"user\"}[2m]) * 100",
           "legendFormat": "cpu user %",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -1022,7 +1037,9 @@
           },
           "expr": "ai_telemetry_runner_kafka_queue_depth",
           "legendFormat": "queue depth",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -1072,9 +1089,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (reason) (rate(ai_telemetry_runner_publish_errors_total[5m]))",
+          "expr": "sum by (reason) (rate(ai_telemetry_runner_publish_errors_total[5m])) or label_replace(vector(0), \"reason\", \"none\", \"\", \"\")",
           "legendFormat": "{{reason}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -1126,7 +1145,9 @@
           },
           "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_telemetry_runner_batch_duration_seconds_bucket[5m])))",
           "legendFormat": "p99 batch duration",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -1191,7 +1212,9 @@
           },
           "expr": "otelcol_exporter_queue_size{exporter=\"otlp/tempo\"}",
           "legendFormat": "tempo queue",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -1200,7 +1223,9 @@
           },
           "expr": "otelcol_exporter_queue_size{exporter=\"prometheusremotewrite\"}",
           "legendFormat": "prom queue",
-          "refId": "A"
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -1209,14 +1234,16 @@
           },
           "expr": "otelcol_exporter_queue_size{exporter=\"loki\"}",
           "legendFormat": "loki queue",
-          "refId": "A"
+          "refId": "C",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
     {
       "id": 24,
       "type": "timeseries",
-      "title": "Collector Dropped Spans / Logs",
+      "title": "Collector Export Failures",
       "datasource": {
         "type": "prometheus",
         "uid": "${DS_PROMETHEUS}"
@@ -1259,18 +1286,22 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "rate(otelcol_processor_dropped_spans_total[5m])",
-          "legendFormat": "dropped spans/s",
-          "refId": "A"
+          "expr": "rate(otelcol_exporter_send_failed_spans[5m])",
+          "legendFormat": "failed spans/s",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "rate(otelcol_processor_dropped_log_records_total[5m])",
-          "legendFormat": "dropped logs/s",
-          "refId": "A"
+          "expr": "rate(otelcol_exporter_send_failed_log_records[5m])",
+          "legendFormat": "failed logs/s",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         }
       ]
     }

@@ -61,8 +61,10 @@ def test_log_prompt_writes_local_file(monkeypatch, tmp_path):
     assert r["prompt_hash"] == prompt_pii.original_hash
     assert r["response_hash"] == response_pii.original_hash
     assert r["event_type"] == "prompt_log_event"
-    assert "prompt_text" in r          # full text in audit record
-    assert "prompt_truncated" in r     # truncated in Loki record
+    assert "prompt_text" not in r       # originals never written to local fallback
+    assert "response_text" not in r
+    assert "prompt_redacted" in r
+    assert "prompt_truncated" in r      # truncated snippet for Loki-style search
     assert r["pii_detected"] is False  # clean inputs
 
 

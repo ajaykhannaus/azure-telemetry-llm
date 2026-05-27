@@ -1,0 +1,105 @@
+"""OpenTelemetry log export — ships structured JSON logs to Loki via the OTel Collector.
+
+Pairs with :mod:`generator.azure_logger` which formats each line as JSON.
+The OTLP log *body* is the raw JSON string so Grafana Loki panels can use
+``| json | event_type = "telemetry_event"``.
+"""
+from __future__ import annotations
+
+import logging
+import os
+import time
+from typing import Any
+
+logger = logging.getLogger(__name__)
+
+try:
+    from opentelemetry._logs import SeverityNumber, get_logger, set_logger_provider
+    from opentelemetry.sdk._logs import LoggerProvider
+    from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
+    from opentelemetry.sdk.resources import Resource
+
+    _OTEL_LOGS_AVAILABLE = True
+except ImportError:
+    _OTEL_LOGS_AVAILABLE = False
+    logger.warning("opentelemetry-sdk logs API not available")
+
+try:
+    from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+
+    _OTLP_LOGS_AVAILABLE = True
+except ImportError:
+    _OTLP_LOGS_AVAILABLE = False
+
+_INITIALISED = False
+_OTEL_LOGGER: Any = None
+
+_LEVEL_TO_SEVERITY = {
+    logging.DEBUG: SeverityNumber.DEBUG,
+    logging.INFO: SeverityNumber.INFO,
+    logging.WARNING: SeverityNumber.WARN,
+    logging.ERROR: SeverityNumber.ERROR,
+    logging.CRITICAL: SeverityNumber.FATAL,
+}
+
+
+class _OTLPJSONHandler(logging.Handler):
+    """Forwards JSON-formatted log lines to OTLP with the JSON as the log body."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if _OTEL_LOGGER is None:
+            return
+        try:
+            line = self.format(record)
+            _OTEL_LOGGER.emit(
+                body=line,
+                timestamp=int(record.created * 1_000_000_000),
+                observed_timestamp=int(time.time() * 1_000_000_000),
+                severity_number=_LEVEL_TO_SEVERITY.get(
+                    record.levelno, SeverityNumber.INFO,
+                ),
+                severity_text=record.levelname,
+            )
+        except Exception:
+            self.handleError(record)
+
+
+def setup_otel_logging(json_formatter: logging.Formatter | None = None) -> None:
+    """Attach an OTLP JSON handler to the root logger. Idempotent."""
+    global _INITIALISED, _OTEL_LOGGER
+    if _INITIALISED:
+        return
+    _INITIALISED = True
+
+    if not _OTEL_LOGS_AVAILABLE:
+        return
+
+    service_name = os.getenv("OTEL_SERVICE_NAME", "ai-telemetry")
+    environment = os.getenv("ENVIRONMENT", "prod")
+    version = os.getenv("SERVICE_VERSION", "0.0.0")
+
+    resource = Resource.create({
+        "service.name":           service_name,
+        "service.version":        version,
+        "deployment.environment": environment,
+    })
+
+    provider = LoggerProvider(resource=resource)
+    set_logger_provider(provider)
+    _OTEL_LOGGER = get_logger("generator.telemetry")
+
+    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+    if otlp_endpoint and _OTLP_LOGS_AVAILABLE:
+        try:
+            insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "true").lower() == "true"
+            exporter = OTLPLogExporter(endpoint=otlp_endpoint, insecure=insecure)
+            provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
+            handler = _OTLPJSONHandler()
+            if json_formatter is not None:
+                handler.setFormatter(json_formatter)
+            logging.getLogger().addHandler(handler)
+            logger.info("OTLP log exporter → %s (insecure=%s)", otlp_endpoint, insecure)
+        except Exception as exc:
+            logger.warning("OTLP log exporter init failed: %s", exc)
+    elif otlp_endpoint:
+        logger.warning("OTLP log endpoint set but log exporter package unavailable")

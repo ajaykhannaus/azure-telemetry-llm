@@ -18,8 +18,18 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from generator.log_sanitize import sanitize_string, sanitize_value
+
 _SERVICE = os.getenv("OTEL_SERVICE_NAME", "ai-telemetry")
 _ENV     = os.getenv("ENVIRONMENT", "prod")
+
+# Standard LogRecord attributes — must never appear in exported JSON logs.
+_LOG_RECORD_STD_KEYS = frozenset({
+    "args", "asctime", "created", "exc_info", "exc_text", "filename",
+    "funcName", "levelname", "levelno", "lineno", "module", "msecs",
+    "message", "msg", "name", "pathname", "process", "processName",
+    "relativeCreated", "stack_info", "thread", "threadName", "taskName",
+})
 
 
 class JSONFormatter(logging.Formatter):
@@ -35,21 +45,19 @@ class JSONFormatter(logging.Formatter):
             "timestamp":    datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
             "level":        record.levelname,
             "logger":       record.name,
-            "message":      record.getMessage(),
+            "message":      sanitize_string(record.getMessage()),
             "module":       record.module,
             "funcName":     record.funcName,
             "service_name": _SERVICE,
             "environment":  _ENV,
         }
         if record.exc_info:
-            doc["exception"] = self.formatException(record.exc_info)
+            doc["exception"] = sanitize_string(self.formatException(record.exc_info))
 
-        # Carry through any `extra=` fields injected by the caller.
-        # Skip Python-internal LogRecord attributes to avoid noise.
-        std_keys = set(logging.LogRecord.__dict__) | set(doc)
+        # Carry through caller `extra=` fields only — never LogRecord internals.
         for key, val in record.__dict__.items():
-            if key not in std_keys:
-                doc[key] = val
+            if key not in _LOG_RECORD_STD_KEYS and key not in doc:
+                doc[key] = sanitize_value(val)
 
         return json.dumps(doc, default=str)
 
@@ -59,14 +67,20 @@ def setup_structured_logging() -> None:
 
     Call this once at the very start of main(), before any other logging call.
     Safe to call multiple times — subsequent calls replace the handler cleanly.
+    Also wires OTLP log export when OTEL_EXPORTER_OTLP_ENDPOINT is set.
     """
     root = logging.getLogger()
     for h in root.handlers[:]:
         root.removeHandler(h)
+    formatter = JSONFormatter()
     handler = logging.StreamHandler()
-    handler.setFormatter(JSONFormatter())
+    handler.setFormatter(formatter)
     root.addHandler(handler)
     root.setLevel(logging.INFO)
+
+    from generator import otel_logging  # noqa: WPS433 — avoid circular import at module load
+
+    otel_logging.setup_otel_logging(json_formatter=formatter)
 
 
 def log_event(event: dict[str, Any]) -> None:
@@ -80,16 +94,20 @@ def log_event(event: dict[str, Any]) -> None:
         | where e.event_type == "telemetry_event"
         | summarize avg(todouble(e.latency_ms)) by tostring(e.model_name)
     """
+    from generator.prompt_logger import _current_trace_id
+
     logging.getLogger("generator.telemetry_event").info(
         "telemetry_event",
         extra={
             # ── Identity ─────────────────────────────────────────────────
             "event_type":          "telemetry_event",
             "request_id":          event.get("request_id"),
+            "trace_id":            _current_trace_id() or event.get("trace_id"),
             "session_id":          event.get("session_id"),
             "turn_number":         event.get("turn_number"),
             "user_id":             event.get("user_id"),
             "client_name":         event.get("client_name"),
+            "tenant_id":           event.get("client_name"),
             "data_classification": event.get("data_classification"),
 
             # ── Routing ──────────────────────────────────────────────────
@@ -102,6 +120,12 @@ def log_event(event: dict[str, Any]) -> None:
 
             # ── Performance ──────────────────────────────────────────────
             "latency_ms":          event.get("latency_ms"),
+            "queue_wait_ms":       event.get("queue_wait_ms"),
+            "model_inference_ms":  event.get("model_inference_ms"),
+            "first_token_ms":      event.get("first_token_ms"),
+            "stream_response_ms":  event.get("stream_response_ms"),
+            "streaming":           event.get("streaming"),
+            "tokens_per_second":   event.get("tokens_per_second"),
             "sla_tier":            event.get("sla_tier"),
             "sla_target_ms":       event.get("sla_target_ms"),
             "sla_breached":        event.get("sla_breached"),

@@ -195,9 +195,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({{service_name=~\".+\"} | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [24h]})) / clamp_min(sum(count_over_time({{service_name=~\".+\"} | json | event_type = \"prompt_log_event\" [24h]})),1) * 100",
+          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [24h])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" [24h])) or on() vector(1))) * 100",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -260,9 +262,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({{service_name=~\".+\"} | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [24h]})) or vector(0)",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [24h])) or vector(0)",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -317,9 +321,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({{service_name=~\".+\"} | json | event_type = \"telemetry_event\" | data_classification=\"phi\" [24h]})) or vector(0)",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=\"phi\" [24h])) or vector(0)",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -374,9 +380,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({{service_name=~\".+\"} | json | event_type = \"telemetry_event\" | data_classification=\"pii\" [24h]})) or vector(0)",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=\"pii\" [24h])) or vector(0)",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -431,9 +439,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "count(count_over_time({{service_name=~\".+\"} | json | event_type = \"prompt_log_event\" [24h]} | label_format ph=prompt_hash))",
+          "expr": "count(sum by (prompt_hash) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" [24h])))",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -478,10 +488,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum by (data_classification) (count_over_time({{service_name=~\".+\"} | json | event_type = \"telemetry_event\" [1h]}))",
+          "expr": "sum by (data_classification) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" [1h]))",
           "legendFormat": "{{data_classification}}",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "queryType": "instant"
         }
       ]
     },
@@ -544,9 +555,10 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({{service_name=~\".+\"} | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [5m]})) / clamp_min(sum(count_over_time({{service_name=~\".+\"} | json | event_type = \"prompt_log_event\" [5m]})),1) * 100",
+          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [5m])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" [5m])) or on() vector(1))) * 100",
           "legendFormat": "PII %",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         }
       ]
     },
@@ -596,9 +608,10 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum by (tenant_id) (count_over_time({{service_name=~\".+\"} | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [5m]})) or vector(0)",
+          "expr": "sum by (tenant_id) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [5m])) or vector(0)",
           "legendFormat": "{{tenant_id}}",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         }
       ]
     },
@@ -641,10 +654,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum by (tenant_id) (count_over_time({{service_name=~\".+\"} | json | event_type = \"telemetry_event\" | data_classification=~\"phi|pii\" [1h]}))",
+          "expr": "sum by (tenant_id) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=~\"phi|pii\" [1h]))",
           "legendFormat": "{{tenant_id}}",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "queryType": "instant"
         }
       ]
     },
@@ -694,9 +708,10 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({{service_name=~\".+\"} | json | event_type = \"telemetry_event\" | data_classification=\"phi\" [1m]})) or vector(0)",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=\"phi\" [1m])) or vector(0)",
           "legendFormat": "PHI req/min",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         }
       ]
     },
@@ -741,8 +756,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "{service_name=~\".+\"} | json | event_type = \"prompt_log_event\" | tenant_id =~ \"$tenant\"",
-          "refId": "A"
+          "expr": "{service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\"",
+          "refId": "A",
+          "queryType": "range",
+          "maxLines": 500,
+          "legendFormat": ""
         }
       ]
     },
@@ -796,7 +814,7 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "{service_name=~\".+\"} | json | event_type = \"telemetry_event\" | data_classification=~\"phi|pii\" | tenant_id=~\"$tenant\" | line_format \"{{.request_id}} {{.tenant_id}} {{.model_name}} {{.trace_id}}\"",
+          "expr": "{service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=~\"phi|pii\" | line_format \"{.request_id} {.tenant_id} {.model_name} {.trace_id}\"",
           "refId": "A"
         }
       ],

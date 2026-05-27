@@ -70,8 +70,7 @@ def _get_blob_service_client() -> Any:
             if not _blob_warned_once:
                 logger.warning(
                     "AUDIT_BLOB_CONNECTION_STRING not set — prompt audit writing "
-                    "to local file %s. Set this in production.",
-                    _AUDIT_LOCAL_PATH,
+                    "to local fallback file. Set AUDIT_BLOB_CONNECTION_STRING in production.",
                 )
                 _blob_warned_once = True
             return None
@@ -96,14 +95,13 @@ def _get_blob_service_client() -> Any:
         except ImportError:
             if not _blob_warned_once:
                 logger.warning(
-                    "azure-storage-blob not installed — audit writing to %s",
-                    _AUDIT_LOCAL_PATH,
+                    "azure-storage-blob not installed — audit writing to local fallback file",
                 )
                 _blob_warned_once = True
             return None
         except Exception as exc:
             if not _blob_warned_once:
-                logger.error("Audit Blob init failed (%s) — writing to %s", exc, _AUDIT_LOCAL_PATH)
+                logger.error("Audit Blob init failed — writing to local fallback file")
                 _blob_warned_once = True
             return None
 
@@ -249,18 +247,20 @@ def log_prompt(
     )
 
     # ── WORM Blob (full forensic record, async, fire-and-forget) ─────────
+    client = _get_blob_service_client()
     blob_record = {
         **loki_record,
-        "prompt_text":         prompt_text,      # original — may contain PII
-        "response_text":       response_text,    # original — may contain PII
         "prompt_redacted":     redacted_prompt,
         "response_redacted":   redacted_response,
         "pii_backend":         (prompt_pii.backend if prompt_pii else "none"),
     }
+    # Full originals go to WORM Blob only — never to stdout/Loki or local fallback.
+    if client is not None:
+        blob_record["prompt_text"] = prompt_text
+        blob_record["response_text"] = response_text
     blob_name = _build_blob_name(trace_id, request_id)
     blob_json = json.dumps(blob_record, default=str)
 
-    client = _get_blob_service_client()
     if client is not None:
         threading.Thread(
             target=_write_to_blob,

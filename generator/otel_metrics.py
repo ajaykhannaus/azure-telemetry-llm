@@ -45,11 +45,24 @@ except ImportError:
     logger.warning("opentelemetry-sdk not found — metrics will be debug-logged only")
 
 try:
-    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
+    from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import (
+        OTLPMetricExporter as OTLPGrpcMetricExporter,
+    )
 
-    _OTLP_AVAILABLE = True
+    _OTLP_GRPC_AVAILABLE = True
 except ImportError:
-    _OTLP_AVAILABLE = False
+    _OTLP_GRPC_AVAILABLE = False
+
+try:
+    from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+        OTLPMetricExporter as OTLPHttpMetricExporter,
+    )
+
+    _OTLP_HTTP_AVAILABLE = True
+except ImportError:
+    _OTLP_HTTP_AVAILABLE = False
+
+_OTLP_AVAILABLE = _OTLP_GRPC_AVAILABLE or _OTLP_HTTP_AVAILABLE
 
 try:
     from opentelemetry.exporter.prometheus import PrometheusMetricReader as _PrometheusReader
@@ -160,16 +173,29 @@ def setup_otel() -> None:
 
     if otlp_endpoint and _OTLP_AVAILABLE:
         try:
-            insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "true").lower() == "true"
-            exporter = OTLPMetricExporter(endpoint=otlp_endpoint, insecure=insecure)
+            protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "").lower()
+            use_http = protocol.startswith("http") or ":4318" in otlp_endpoint
+            if use_http:
+                if not _OTLP_HTTP_AVAILABLE:
+                    raise RuntimeError("HTTP OTLP metric exporter package unavailable")
+                exporter = OTLPHttpMetricExporter(endpoint=otlp_endpoint)
+                logger.info(
+                    "OTLP metric exporter (HTTP) → %s (interval %dms)",
+                    otlp_endpoint, export_interval_ms,
+                )
+            else:
+                if not _OTLP_GRPC_AVAILABLE:
+                    raise RuntimeError("gRPC OTLP metric exporter package unavailable")
+                insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "true").lower() == "true"
+                exporter = OTLPGrpcMetricExporter(endpoint=otlp_endpoint, insecure=insecure)
+                logger.info(
+                    "OTLP metric exporter (gRPC) → %s (interval %dms, insecure=%s)",
+                    otlp_endpoint, export_interval_ms, insecure,
+                )
             readers.append(
                 PeriodicExportingMetricReader(
                     exporter, export_interval_millis=export_interval_ms,
                 ),
-            )
-            logger.info(
-                "OTLP metric exporter → %s (interval %dms, insecure=%s)",
-                otlp_endpoint, export_interval_ms, insecure,
             )
         except Exception as exc:
             logger.warning("OTLP exporter init failed: %s", exc)

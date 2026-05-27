@@ -181,27 +181,33 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_gateway_request_duration_bucket{tenant_id=~\"$tenant\"}[5m])))",
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~\"$tenant\"}[5m])))",
           "legendFormat": "p50",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_gateway_request_duration_bucket{tenant_id=~\"$tenant\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~\"$tenant\"}[5m])))",
           "legendFormat": "p95",
-          "refId": "B"
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_gateway_request_duration_bucket{tenant_id=~\"$tenant\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~\"$tenant\"}[5m])))",
           "legendFormat": "p99",
-          "refId": "C"
+          "refId": "C",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -265,8 +271,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "ai_gateway:sli:latency_p99_ms:5m",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -329,9 +336,10 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_gateway_request_duration_bucket[5m])))",
-          "instant": true,
-          "refId": "A"
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket[5m])))",
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -386,9 +394,10 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_gateway_request_duration_bucket[5m])))",
-          "instant": true,
-          "refId": "A"
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket[5m])))",
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -443,9 +452,10 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(rate(ai_gateway_request_duration_sum[5m])) / clamp_min(sum(rate(ai_gateway_request_duration_count[5m])),1e-9)",
-          "instant": true,
-          "refId": "A"
+          "expr": "sum(rate(ai_gateway_request_duration_milliseconds_sum[5m])) / clamp_min(sum(rate(ai_gateway_request_duration_milliseconds_count[5m])),1e-9)",
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -501,7 +511,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (le) (rate(ai_gateway_request_duration_bucket{tenant_id=~\"$tenant\"}[2m]))",
+          "expr": "sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~\"$tenant\"}[2m]))",
           "format": "heatmap",
           "legendFormat": "{{le}}",
           "refId": "A"
@@ -554,9 +564,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, model_name) (rate(ai_gateway_request_duration_bucket{tenant_id=~\"$tenant\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, model_name) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~\"$tenant\"}[5m])))",
           "legendFormat": "{{model_name}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -606,9 +618,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, environment) (rate(ai_gateway_request_duration_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, environment) (rate(ai_gateway_request_duration_milliseconds_bucket[5m])))",
           "legendFormat": "{{environment}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -651,7 +665,7 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | unwrap queue_wait_ms [10m]))",
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | unwrap queue_wait_ms [10m]))",
           "legendFormat": "queue_wait \u2014 {{model_name}}",
           "refId": "A"
         },
@@ -660,7 +674,7 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | unwrap model_inference_ms [10m]))",
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | unwrap model_inference_ms [10m]))",
           "legendFormat": "inference \u2014 {{model_name}}",
           "refId": "B"
         },
@@ -669,7 +683,7 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | unwrap stream_response_ms [10m]))",
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | unwrap stream_response_ms [10m]))",
           "legendFormat": "stream \u2014 {{model_name}}",
           "refId": "C"
         }
@@ -734,9 +748,10 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | streaming=\"true\" | unwrap tokens_per_second [5m]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | streaming=\"true\" | unwrap tokens_per_second [5m]))",
           "legendFormat": "avg tokens/s",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         }
       ]
     },
@@ -786,9 +801,10 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | streaming=\"true\" | unwrap first_token_ms [5m]))",
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | streaming=\"true\" | unwrap first_token_ms [5m]))",
           "legendFormat": "{{model_name}}",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         }
       ]
     },
@@ -851,7 +867,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_gateway_request_duration_bucket[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket[5m])))",
           "legendFormat": "p99",
           "exemplarTraceIdDestinations": [
             {

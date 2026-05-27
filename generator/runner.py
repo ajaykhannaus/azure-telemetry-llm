@@ -109,7 +109,10 @@ def _ensure_pod_sim() -> None:
 
 def _batch_size() -> int:
     """Return a Poisson-ish batch size scaled by traffic multiplier."""
-    raw = BASE_BATCH_SIZE * traffic_multiplier() + random.gauss(0, 1.0)
+    base = BASE_BATCH_SIZE
+    if os.getenv("ALLOW_MOCK_MODE", "").lower() in ("true", "1", "yes"):
+        base = int(os.getenv("MOCK_BATCH_SIZE", str(max(BASE_BATCH_SIZE, 20))))
+    raw = base * traffic_multiplier() + random.gauss(0, 1.0)
     return max(1, math.ceil(raw))
 
 
@@ -203,11 +206,6 @@ def run_one_batch() -> dict[str, Any]:
                     otel.record_metrics(event)
                     azure_logger.log_event(event)
 
-                    # ── Safety + audit (FR-003, FR-014, FR-012) ──────────
-                    # Synthetic events don't carry real prompt/response text.
-                    # The hooks below are no-ops until real text is supplied;
-                    # they exercise the code path so it's ready for the real
-                    # gateway cutover described in docs/improvement-plan.md §6.
                     _prompt_text   = event.get("prompt_text")
                     _response_text = event.get("response_text")
                     if _prompt_text or _response_text:
@@ -332,11 +330,22 @@ def _signal_handler(signum: int, _frame: Any) -> None:
     _running = False
 
 
+def _apply_local_dev_defaults() -> None:
+    """Apply sane defaults when running the mock local-dev profile."""
+    if os.getenv("ALLOW_MOCK_MODE", "").lower() not in ("true", "1", "yes"):
+        return
+    os.environ.setdefault("ENVIRONMENT", "dev")
+    os.environ.setdefault("PROMETHEUS_PORT", "8000")
+    os.environ.setdefault("HEALTH_PORT", "8080")
+    os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+
+
 def main() -> int:
     """Run the continuous batch loop.
 
     Returns a process exit code (0 = clean shutdown, 2 = startup misconfiguration).
     """
+    _apply_local_dev_defaults()
     azure_logger.setup_structured_logging()
 
     signal.signal(signal.SIGTERM, _signal_handler)

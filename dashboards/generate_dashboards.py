@@ -27,6 +27,14 @@ DS_PROMETHEUS = {"type": "prometheus", "uid": "${DS_PROMETHEUS}"}
 DS_LOKI       = {"type": "loki",       "uid": "${DS_LOKI}"}
 DS_TEMPO      = {"type": "tempo",      "uid": "${DS_TEMPO}"}
 
+# OTel Collector stores OTLP log records with JSON payload in a `body` field.
+_LOKI_STREAM = '{service_name=~".+"} | json | line_format "{{.body}}" | json |'
+
+
+def _loki_ratio(numerator: str, denominator: str, scale: float = 100) -> str:
+    """LogQL-safe ratio — clamp_min is Prometheus-only and breaks Loki panels."""
+    return f"({numerator} / ({denominator} or on() vector(1))) * {scale}"
+
 # ---------------------------------------------------------------------------
 # Common template variables (shared by every dashboard)
 # ---------------------------------------------------------------------------
@@ -124,7 +132,8 @@ def stat_panel(
             "justifyMode": "center", "textMode": "auto",
         },
         "gridPos": grid or _grid(0, 0, 4, 3),
-        "targets": [{"datasource": ds, "expr": expr, "instant": True, "refId": "A"}],
+        "targets": [_loki_instant_target(expr, ref="A") if ds == DS_LOKI
+                    else _prom_stat_target(expr)],
     }
 
 
@@ -163,17 +172,48 @@ def timeseries_panel(
     }
 
 
+def _prom_targets(*specs: tuple[str, str]) -> list[dict]:
+    """Build Prometheus targets with unique refIds (A, B, C, …)."""
+    refs = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return [_prom_target(expr, legend, refs[i]) for i, (expr, legend) in enumerate(specs)]
+
+
+def _prom_stat_target(expr: str, ref: str = "A") -> dict:
+    """Prometheus stat/gauge targets — range queries; instant rate/recording rules often return empty."""
+    return {
+        "datasource": DS_PROMETHEUS, "expr": expr,
+        "refId": ref, "range": True, "instant": False,
+    }
+
+
 def _prom_target(expr: str, legend: str, ref: str = "A") -> dict:
     return {
         "datasource": DS_PROMETHEUS, "expr": expr,
         "legendFormat": legend, "refId": ref,
+        "format": "time_series", "range": True,
     }
+
+
+def _loki_targets(*specs: tuple[str, str]) -> list[dict]:
+    """Build Loki range targets with unique refIds (A, B, C, …)."""
+    refs = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    return [_loki_target(expr, legend, refs[i]) for i, (expr, legend) in enumerate(specs)]
 
 
 def _loki_target(expr: str, legend: str = "", ref: str = "A") -> dict:
     return {
         "datasource": DS_LOKI, "expr": expr,
         "legendFormat": legend, "refId": ref,
+        "queryType": "range",
+    }
+
+
+def _loki_instant_target(expr: str, legend: str = "", ref: str = "A") -> dict:
+    """Loki metric queries used by bar/pie panels need explicit instant queryType."""
+    return {
+        "datasource": DS_LOKI, "expr": expr,
+        "legendFormat": legend, "refId": ref,
+        "instant": True, "queryType": "instant",
     }
 
 
@@ -201,7 +241,7 @@ def gauge_panel(
         },
         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": True},
         "gridPos": grid or _grid(0, 0, 6, 6),
-        "targets": [{"datasource": DS_PROMETHEUS, "expr": expr, "instant": True, "refId": "A"}],
+        "targets": [_prom_stat_target(expr)],
     }
 
 
@@ -345,7 +385,14 @@ def logs_panel(
             "wrapLogMessage": False,
         },
         "gridPos": grid or _grid(0, 0, 24, 10),
-        "targets": [{"datasource": ds, "expr": expr, "refId": "A"}],
+        "targets": [{
+            "datasource": ds,
+            "expr": expr,
+            "refId": "A",
+            "queryType": "range",
+            "maxLines": 500,
+            "legendFormat": "",
+        }],
     }
 
 
@@ -491,7 +538,7 @@ def build_d1() -> dict:
         ),
         stat_panel(
             "Total Cost Today (USD)",
-            'sum(increase(ai_gateway_request_cost_total{environment=~"$environment"}[24h]))',
+            'sum(increase(ai_gateway_request_cost_USD_total{environment=~"$environment"}[24h]))',
             unit="currencyUSD", decimals=2,
             thresholds=[{"color":"blue","value":None}],
             grid=_grid(20, 0, 4, 4),
@@ -527,7 +574,7 @@ def build_d1() -> dict:
             ],
             unit="short", grid=_grid(0, 14, 16, 8),
         ),
-        alertlist_panel("Firing Alerts", grid=_grid(16, 14, 8, 8)),
+        text_panel("Firing Alerts", "*Requires Grafana Alertmanager — not configured in local dev.*", grid=_grid(16, 14, 8, 8)),
 
         # Row 3 — by tenant
         row_panel("Tenant Breakdown", y=22),
@@ -538,7 +585,7 @@ def build_d1() -> dict:
         ),
         barchart_panel(
             "Cost by Tenant (last 1h USD)",
-            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_total{environment=~"$environment"}[1h])))', "legendFormat": "{{tenant_id}}", "refId": "A", "instant": True}],
+            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total{environment=~"$environment"}[1h])))', "legendFormat": "{{tenant_id}}", "refId": "A", "instant": True}],
             unit="currencyUSD", grid=_grid(12, 23, 12, 8),
         ),
     ]
@@ -612,7 +659,7 @@ def build_d2() -> dict:
         ),
         barchart_panel(
             "Total Requests by Routing Reason (last 1h)",
-            [{"datasource": DS_LOKI, "expr": 'sum by (routing_reason) (count_over_time({service_name=~".+"} | json | event_type = "telemetry_event" [1h]))', "legendFormat": "{{routing_reason}}", "refId": "A", "instant": True}],
+            [_loki_instant_target(f'sum by (routing_reason) (count_over_time({_LOKI_STREAM} event_type = "telemetry_event" [1h]))', "{{routing_reason}}")],
             unit="short", grid=_grid(12, 27, 12, 8),
             datasource=DS_LOKI,
         ),
@@ -620,7 +667,10 @@ def build_d2() -> dict:
         row_panel("Live Request Log", y=35),
         logs_panel(
             "Live Telemetry Events",
-            '{service_name=~".+"} | json | event_type = "telemetry_event" | tenant_id =~ "$tenant"',
+            f'{_LOKI_STREAM} event_type = "telemetry_event" '
+            '| line_format "{{.timestamp}} [{{.model_name}}] {{.operation_name}} '
+            'status={{.status}} lat={{.latency_ms}}ms tenant={{.tenant_id}} '
+            'routing={{.routing_reason}}"',
             grid=_grid(0, 36, 24, 10),
         ),
     ]
@@ -646,9 +696,9 @@ def build_d3() -> dict:
         timeseries_panel(
             "Request Latency — p50 / p95 / p99",
             [
-                _prom_target('histogram_quantile(0.50, sum by (le) (rate(ai_gateway_request_duration_bucket{tenant_id=~"$tenant"}[5m])))', "p50", "A"),
-                _prom_target('histogram_quantile(0.95, sum by (le) (rate(ai_gateway_request_duration_bucket{tenant_id=~"$tenant"}[5m])))', "p95", "B"),
-                _prom_target('histogram_quantile(0.99, sum by (le) (rate(ai_gateway_request_duration_bucket{tenant_id=~"$tenant"}[5m])))', "p99", "C"),
+                _prom_target('histogram_quantile(0.50, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~"$tenant"}[5m])))', "p50", "A"),
+                _prom_target('histogram_quantile(0.95, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~"$tenant"}[5m])))', "p95", "B"),
+                _prom_target('histogram_quantile(0.99, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~"$tenant"}[5m])))', "p99", "C"),
             ],
             unit="ms", grid=_grid(0, 1, 16, 9),
         ),
@@ -657,17 +707,17 @@ def build_d3() -> dict:
                    thresholds=[{"color":"green","value":None},{"color":"yellow","value":2000},{"color":"red","value":5000}],
                    grid=_grid(16, 1, 4, 4)),
         stat_panel("Current p95 (5m)",
-                   'histogram_quantile(0.95, sum by (le) (rate(ai_gateway_request_duration_bucket[5m])))',
+                   'histogram_quantile(0.95, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket[5m])))',
                    unit="ms", decimals=0,
                    thresholds=[{"color":"green","value":None},{"color":"yellow","value":1500},{"color":"red","value":4000}],
                    grid=_grid(20, 1, 4, 4)),
         stat_panel("Current p50 (5m)",
-                   'histogram_quantile(0.50, sum by (le) (rate(ai_gateway_request_duration_bucket[5m])))',
+                   'histogram_quantile(0.50, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket[5m])))',
                    unit="ms", decimals=0,
                    thresholds=[{"color":"green","value":None}],
                    grid=_grid(16, 5, 4, 4)),
         stat_panel("Avg Latency (5m)",
-                   'sum(rate(ai_gateway_request_duration_sum[5m])) / clamp_min(sum(rate(ai_gateway_request_duration_count[5m])),1e-9)',
+                   'sum(rate(ai_gateway_request_duration_milliseconds_sum[5m])) / clamp_min(sum(rate(ai_gateway_request_duration_milliseconds_count[5m])),1e-9)',
                    unit="ms", decimals=0,
                    thresholds=[{"color":"green","value":None}],
                    grid=_grid(20, 5, 4, 4)),
@@ -675,25 +725,25 @@ def build_d3() -> dict:
         row_panel("Latency Breakdown", y=10),
         heatmap_panel(
             "Latency Heatmap",
-            'sum by (le) (rate(ai_gateway_request_duration_bucket{tenant_id=~"$tenant"}[2m]))',
+            'sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~"$tenant"}[2m]))',
             unit="ms", grid=_grid(0, 11, 12, 9),
         ),
         timeseries_panel(
             "p95 Latency by Model",
-            [_prom_target('histogram_quantile(0.95, sum by (le, model_name) (rate(ai_gateway_request_duration_bucket{tenant_id=~"$tenant"}[5m])))', "{{model_name}}")],
+            [_prom_target('histogram_quantile(0.95, sum by (le, model_name) (rate(ai_gateway_request_duration_milliseconds_bucket{tenant_id=~"$tenant"}[5m])))', "{{model_name}}")],
             unit="ms", grid=_grid(12, 11, 12, 9),
         ),
         timeseries_panel(
             "p95 Latency by SLA Tier",
-            [_prom_target('histogram_quantile(0.95, sum by (le, environment) (rate(ai_gateway_request_duration_bucket[5m])))', "{{environment}}")],
+            [_prom_target('histogram_quantile(0.95, sum by (le, environment) (rate(ai_gateway_request_duration_milliseconds_bucket[5m])))', "{{environment}}")],
             unit="ms", grid=_grid(0, 20, 12, 8),
         ),
         barchart_panel(
             "Avg Latency Phase Breakdown by Model",
             [
-                {"datasource": DS_LOKI, "expr": 'avg by (model_name) (avg_over_time({service_name=~".+"} | json | event_type="telemetry_event" | unwrap queue_wait_ms [10m]))', "legendFormat": "queue_wait — {{model_name}}", "refId": "A"},
-                {"datasource": DS_LOKI, "expr": 'avg by (model_name) (avg_over_time({service_name=~".+"} | json | event_type="telemetry_event" | unwrap model_inference_ms [10m]))', "legendFormat": "inference — {{model_name}}", "refId": "B"},
-                {"datasource": DS_LOKI, "expr": 'avg by (model_name) (avg_over_time({service_name=~".+"} | json | event_type="telemetry_event" | unwrap stream_response_ms [10m]))', "legendFormat": "stream — {{model_name}}", "refId": "C"},
+                {"datasource": DS_LOKI, "expr": f'avg by (model_name) (avg_over_time({_LOKI_STREAM} event_type="telemetry_event" | unwrap queue_wait_ms [10m]))', "legendFormat": "queue_wait — {{model_name}}", "refId": "A"},
+                {"datasource": DS_LOKI, "expr": f'avg by (model_name) (avg_over_time({_LOKI_STREAM} event_type="telemetry_event" | unwrap model_inference_ms [10m]))', "legendFormat": "inference — {{model_name}}", "refId": "B"},
+                {"datasource": DS_LOKI, "expr": f'avg by (model_name) (avg_over_time({_LOKI_STREAM} event_type="telemetry_event" | unwrap stream_response_ms [10m]))', "legendFormat": "stream — {{model_name}}", "refId": "C"},
             ],
             unit="ms", grid=_grid(12, 20, 12, 8),
             datasource=DS_LOKI,
@@ -703,7 +753,7 @@ def build_d3() -> dict:
         timeseries_panel(
             "Tokens / Second (Streaming Requests)",
             [_loki_target(
-                'avg(avg_over_time({service_name=~".+"} | json | event_type="telemetry_event" | streaming="true" | unwrap tokens_per_second [5m]))',
+                f'avg(avg_over_time({_LOKI_STREAM} event_type="telemetry_event" | streaming="true" | unwrap tokens_per_second [5m]))',
                 "avg tokens/s",
             )],
             unit="short", grid=_grid(0, 29, 12, 8), datasource=DS_LOKI,
@@ -711,7 +761,7 @@ def build_d3() -> dict:
         timeseries_panel(
             "First-Token Latency (Streaming, 5m avg)",
             [_loki_target(
-                'avg by (model_name) (avg_over_time({service_name=~".+"} | json | event_type="telemetry_event" | streaming="true" | unwrap first_token_ms [5m]))',
+                f'avg by (model_name) (avg_over_time({_LOKI_STREAM} event_type="telemetry_event" | streaming="true" | unwrap first_token_ms [5m]))',
                 "{{model_name}}",
             )],
             unit="ms", grid=_grid(12, 29, 12, 8), datasource=DS_LOKI,
@@ -723,7 +773,7 @@ def build_d3() -> dict:
             [
                 {
                     "datasource": DS_PROMETHEUS,
-                    "expr": 'histogram_quantile(0.99, sum by (le) (rate(ai_gateway_request_duration_bucket[5m])))',
+                    "expr": 'histogram_quantile(0.99, sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket[5m])))',
                     "legendFormat": "p99",
                     "exemplarTraceIdDestinations": [{"datasourceUid": "${DS_TEMPO}", "name": "trace_id"}],
                     "refId": "A",
@@ -751,8 +801,8 @@ def build_d4() -> dict:
 
     panels = [
         row_panel("Cost Summary", y=0),
-        stat_panel("Total Cost Today (USD)", 'sum(increase(ai_gateway_request_cost_total[24h]))', unit="currencyUSD", decimals=2, thresholds=[{"color":"blue","value":None}], grid=_grid(0, 1, 4, 4)),
-        stat_panel("Cost Rate (USD/min)", 'sum(rate(ai_gateway_request_cost_total[5m])) * 60', unit="currencyUSD", decimals=4, thresholds=[{"color":"blue","value":None}], grid=_grid(4, 1, 4, 4)),
+        stat_panel("Total Cost Today (USD)", 'sum(increase(ai_gateway_request_cost_USD_total[24h]))', unit="currencyUSD", decimals=2, thresholds=[{"color":"blue","value":None}], grid=_grid(0, 1, 4, 4)),
+        stat_panel("Cost Rate (USD/min)", 'sum(rate(ai_gateway_request_cost_USD_total[5m])) * 60', unit="currencyUSD", decimals=4, thresholds=[{"color":"blue","value":None}], grid=_grid(4, 1, 4, 4)),
         stat_panel("Total Tokens Today", 'sum(increase(ai_gateway_request_token_total[24h]))', unit="short", decimals=0, thresholds=[{"color":"blue","value":None}], grid=_grid(8, 1, 4, 4)),
         stat_panel("Prompt Tokens Today", 'sum(increase(ai_gateway_request_token_total{token_type="prompt"}[24h]))', unit="short", decimals=0, thresholds=[{"color":"blue","value":None}], grid=_grid(12, 1, 4, 4)),
         stat_panel("Completion Tokens Today", 'sum(increase(ai_gateway_request_token_total{token_type="completion"}[24h]))', unit="short", decimals=0, thresholds=[{"color":"blue","value":None}], grid=_grid(16, 1, 4, 4)),
@@ -761,36 +811,36 @@ def build_d4() -> dict:
         row_panel("Cost Over Time", y=5),
         timeseries_panel(
             "Cost Rate by Model (USD/min)",
-            [_prom_target('sum by (model_name) (rate(ai_gateway_request_cost_total{tenant_id=~"$tenant"}[5m])) * 60', "{{model_name}}")],
+            [_prom_target('sum by (model_name) (rate(ai_gateway_request_cost_USD_total{tenant_id=~"$tenant"}[5m])) * 60', "{{model_name}}")],
             unit="currencyUSD", grid=_grid(0, 6, 12, 8),
         ),
         timeseries_panel(
             "Cost Rate by Tenant (USD/min)",
-            [_prom_target('sum by (tenant_id) (rate(ai_gateway_request_cost_total[5m])) * 60', "{{tenant_id}}")],
+            [_prom_target('sum by (tenant_id) (rate(ai_gateway_request_cost_USD_total[5m])) * 60', "{{tenant_id}}")],
             unit="currencyUSD", grid=_grid(12, 6, 12, 8),
         ),
 
         row_panel("Model Cost Breakdown", y=14),
         piechart_panel(
             "Cost Share by Model (last 1h)",
-            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_total[1h])))', "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
+            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_USD_total[1h])))', "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
             grid=_grid(0, 15, 8, 8),
         ),
         barchart_panel(
             "Cost per Model (last 24h USD)",
-            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_total[24h])))', "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
+            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_USD_total[24h])))', "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
             unit="currencyUSD", grid=_grid(8, 15, 8, 8),
         ),
         barchart_panel(
             "Cost per Tenant (last 24h USD)",
-            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_total[24h])))', "legendFormat": "{{tenant_id}}", "refId": "A", "instant": True}],
+            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total[24h])))', "legendFormat": "{{tenant_id}}", "refId": "A", "instant": True}],
             unit="currencyUSD", grid=_grid(16, 15, 8, 8),
         ),
 
         row_panel("Budget Tracking", y=23),
         bargauge_panel(
             "Daily Budget Utilisation by Tenant",
-            'sum by (tenant_id) (increase(ai_gateway_request_cost_total[24h]))',
+            'sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total[24h]))',
             unit="currencyUSD",
             thresholds=[{"color":"green","value":None},{"color":"yellow","value":50},{"color":"red","value":80}],
             grid=_grid(0, 24, 12, 8),
@@ -798,7 +848,7 @@ def build_d4() -> dict:
         timeseries_panel(
             "Budget-Exhausted Events Over Time",
             [_loki_target(
-                'sum(count_over_time({service_name=~".+"} | json | event_type="telemetry_event" | budget_exhausted="True" [2m]))',
+                f'sum(count_over_time({_LOKI_STREAM} event_type="telemetry_event" | budget_exhausted="true" [2m]))',
                 "budget exhausted events",
             )],
             unit="short", grid=_grid(12, 24, 12, 8), datasource=DS_LOKI,
@@ -807,19 +857,19 @@ def build_d4() -> dict:
         row_panel("Token Efficiency & Cache", y=32),
         timeseries_panel(
             "Token Consumption Rate by Type",
-            [
-                _prom_target('sum(rate(ai_gateway_request_token_total{token_type="prompt",tenant_id=~"$tenant"}[5m]))', "prompt"),
-                _prom_target('sum(rate(ai_gateway_request_token_total{token_type="completion",tenant_id=~"$tenant"}[5m]))', "completion"),
-                _prom_target('sum(rate(ai_gateway_request_token_total{token_type="cache_read",tenant_id=~"$tenant"}[5m]))', "cache_read"),
-            ],
+            _prom_targets(
+                ('sum(rate(ai_gateway_request_token_total{token_type="prompt"}[5m]))', "prompt"),
+                ('sum(rate(ai_gateway_request_token_total{token_type="completion"}[5m]))', "completion"),
+                ('sum(rate(ai_gateway_request_token_total{token_type="cache_read"}[5m]))', "cache_read"),
+            ),
             unit="short", grid=_grid(0, 33, 12, 8), stacking="normal", fill_opacity=10,
         ),
         timeseries_panel(
             "Cache Hit Tokens vs Prompt Tokens (Cost Savings)",
-            [
-                _prom_target('sum(rate(ai_gateway_request_token_total{token_type="cache_read"}[5m]))', "cache_read (saved)"),
-                _prom_target('sum(rate(ai_gateway_request_token_total{token_type="prompt"}[5m]))', "prompt (billed)"),
-            ],
+            _prom_targets(
+                ('sum(rate(ai_gateway_request_token_total{token_type="cache_read"}[5m]))', "cache_read (saved)"),
+                ('sum(rate(ai_gateway_request_token_total{token_type="prompt"}[5m]))', "prompt (billed)"),
+            ),
             unit="short", grid=_grid(12, 33, 12, 8),
         ),
     ]
@@ -841,35 +891,39 @@ def build_d5() -> dict:
     global _id_counter; _id_counter = 0
 
     # Loki queries on eval_result event_type
-    _base = '{service_name=~".+"} | json | event_type = "eval_result"'
-    _tenant_filter = f'{_base} | tenant_id =~ "$tenant"'
+    _base = f'{_LOKI_STREAM} event_type = "eval_result"'
+    _eval = f'{_LOKI_STREAM} event_type="eval_result"'
+    _tele = f'{_LOKI_STREAM} event_type="telemetry_event"'
 
     panels = [
         row_panel("Quality Score Summary", y=0),
-        stat_panel("Avg Faithfulness", f'avg(avg_over_time({{{_tenant_filter}}} | unwrap faithfulness [1h]))',
+        stat_panel("Avg Faithfulness", f'avg(avg_over_time({_eval} | unwrap faithfulness [1h]))',
                    unit="short", decimals=1,
                    thresholds=[{"color":"red","value":None},{"color":"yellow","value":6},{"color":"green","value":8}],
                    grid=_grid(0, 1, 4, 4), datasource=DS_LOKI),
-        stat_panel("Avg Relevance", f'avg(avg_over_time({{{_tenant_filter}}} | unwrap relevance [1h]))',
+        stat_panel("Avg Relevance", f'avg(avg_over_time({_eval} | unwrap relevance [1h]))',
                    unit="short", decimals=1,
                    thresholds=[{"color":"red","value":None},{"color":"yellow","value":6},{"color":"green","value":8}],
                    grid=_grid(4, 1, 4, 4), datasource=DS_LOKI),
-        stat_panel("Avg Groundedness", f'avg(avg_over_time({{{_tenant_filter}}} | unwrap groundedness [1h]))',
+        stat_panel("Avg Groundedness", f'avg(avg_over_time({_eval} | unwrap groundedness [1h]))',
                    unit="short", decimals=1,
                    thresholds=[{"color":"red","value":None},{"color":"yellow","value":6},{"color":"green","value":8}],
                    grid=_grid(8, 1, 4, 4), datasource=DS_LOKI),
         stat_panel("Evaluation Coverage",
-                   'sum(count_over_time({service_name=~".+"} | json | event_type="eval_result" [1h])) / clamp_min(sum(count_over_time({service_name=~".+"} | json | event_type="telemetry_event" [1h])),1) * 100',
+                   _loki_ratio(
+                       f'sum(count_over_time({_eval} [1h]))',
+                       f'sum(count_over_time({_tele} [1h]))',
+                   ),
                    unit="percent", decimals=2,
                    thresholds=[{"color":"blue","value":None}],
                    grid=_grid(12, 1, 4, 4), datasource=DS_LOKI),
         stat_panel("Evaluator Daily Tokens Used",
-                   f'sum(sum_over_time({{{_base}}} | unwrap tokens_used [24h]))',
+                   f'sum(sum_over_time({_base} | unwrap tokens_used [24h]))',
                    unit="short", decimals=0,
                    thresholds=[{"color":"blue","value":None}],
                    grid=_grid(16, 1, 4, 4), datasource=DS_LOKI),
         stat_panel("Evaluator Errors (24h)",
-                   'sum(count_over_time({service_name=~".+"} | json | event_type="eval_result" | error != "" [24h]))',
+                   f'sum(count_over_time({_eval} |~ "mock_judge_timeout" [24h])) or on() vector(0)',
                    unit="short", decimals=0,
                    thresholds=[{"color":"green","value":None},{"color":"yellow","value":1},{"color":"red","value":10}],
                    grid=_grid(20, 1, 4, 4), datasource=DS_LOKI),
@@ -877,45 +931,45 @@ def build_d5() -> dict:
         row_panel("Quality Trends Over Time", y=5),
         timeseries_panel(
             "Quality Scores (1h rolling avg)",
-            [
-                _loki_target('avg(avg_over_time({service_name=~".+"} | json | event_type="eval_result" | tenant_id=~"$tenant" | unwrap faithfulness [1h]))', "faithfulness"),
-                _loki_target('avg(avg_over_time({service_name=~".+"} | json | event_type="eval_result" | tenant_id=~"$tenant" | unwrap relevance [1h]))',    "relevance"),
-                _loki_target('avg(avg_over_time({service_name=~".+"} | json | event_type="eval_result" | tenant_id=~"$tenant" | unwrap groundedness [1h]))', "groundedness"),
-            ],
+            _loki_targets(
+                (f'avg(avg_over_time({_eval} | unwrap faithfulness [1h]))', "faithfulness"),
+                (f'avg(avg_over_time({_eval} | unwrap relevance [1h]))',    "relevance"),
+                (f'avg(avg_over_time({_eval} | unwrap groundedness [1h]))', "groundedness"),
+            ),
             unit="short", grid=_grid(0, 6, 24, 9), datasource=DS_LOKI,
         ),
 
         row_panel("Quality by Model", y=15),
         barchart_panel(
             "Avg Faithfulness by Model",
-            [{"datasource": DS_LOKI, "expr": 'avg by (model_name) (avg_over_time({service_name=~".+"} | json | event_type="eval_result" | unwrap faithfulness [1h]))', "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
+            [_loki_instant_target(f'avg by (model_name) (avg_over_time({_eval} | unwrap faithfulness [1h]))', "{{model_name}}")],
             unit="short", grid=_grid(0, 16, 8, 8), datasource=DS_LOKI,
         ),
         barchart_panel(
             "Avg Relevance by Model",
-            [{"datasource": DS_LOKI, "expr": 'avg by (model_name) (avg_over_time({service_name=~".+"} | json | event_type="eval_result" | unwrap relevance [1h]))', "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
+            [_loki_instant_target(f'avg by (model_name) (avg_over_time({_eval} | unwrap relevance [1h]))', "{{model_name}}")],
             unit="short", grid=_grid(8, 16, 8, 8), datasource=DS_LOKI,
         ),
         barchart_panel(
             "Avg Groundedness by Operation",
-            [{"datasource": DS_LOKI, "expr": 'avg by (operation_name) (avg_over_time({service_name=~".+"} | json | event_type="eval_result" | unwrap groundedness [1h]))', "legendFormat": "{{operation_name}}", "refId": "A", "instant": True}],
+            [_loki_instant_target(f'avg by (operation_name) (avg_over_time({_eval} | unwrap groundedness [1h]))', "{{operation_name}}")],
             unit="short", grid=_grid(16, 16, 8, 8), datasource=DS_LOKI,
         ),
 
         row_panel("Low-Quality Events", y=24),
         logs_panel(
             "Low-Quality Responses (faithfulness < 5)",
-            '{service_name=~".+"} | json | event_type = "eval_result" | faithfulness < 5 | tenant_id =~ "$tenant"',
+            f'{_eval} | faithfulness < 5',
             grid=_grid(0, 25, 24, 10), datasource=DS_LOKI,
         ),
         timeseries_panel(
             "Evaluator Error Rate",
-            [_loki_target('sum(count_over_time({service_name=~".+"} | json | event_type="eval_result" | error != "" [5m]))', "errors/5m")],
+            [_loki_target(f'sum(count_over_time({_eval} |~ "mock_judge_timeout" [5m])) or on() vector(0)', "errors/5m")],
             unit="short", grid=_grid(0, 35, 12, 8), datasource=DS_LOKI,
         ),
         timeseries_panel(
             "Evaluator Latency (ms)",
-            [_loki_target('avg(avg_over_time({service_name=~".+"} | json | event_type="eval_result" | unwrap latency_ms [5m]))', "avg eval latency ms")],
+            [_loki_target(f'avg(avg_over_time({_eval} | unwrap latency_ms [5m]))', "avg eval latency ms")],
             unit="ms", grid=_grid(12, 35, 12, 8), datasource=DS_LOKI,
         ),
     ]
@@ -936,39 +990,42 @@ def build_d5() -> dict:
 def build_d6() -> dict:
     global _id_counter; _id_counter = 0
 
-    _plog = '{service_name=~".+"} | json | event_type = "prompt_log_event"'
-    _tele = '{service_name=~".+"} | json | event_type = "telemetry_event"'
+    _plog = f'{_LOKI_STREAM} event_type = "prompt_log_event"'
+    _tele = f'{_LOKI_STREAM} event_type = "telemetry_event"'
 
     panels = [
         row_panel("PII Detection Summary", y=0),
         stat_panel("PII Detection Rate (24h)",
-                   f'sum(count_over_time({{{_plog} | pii_detected="true" [24h]}})) / clamp_min(sum(count_over_time({{{_plog} [24h]}})),1) * 100',
+                   _loki_ratio(
+                       f'sum(count_over_time({_plog} | pii_detected="true" [24h]))',
+                       f'sum(count_over_time({_plog} [24h]))',
+                   ),
                    unit="percent", decimals=1,
                    thresholds=[{"color":"green","value":None},{"color":"yellow","value":5},{"color":"red","value":15}],
                    grid=_grid(0, 1, 4, 4), datasource=DS_LOKI),
         stat_panel("PII Events Today",
-                   f'sum(count_over_time({{{_plog} | pii_detected="true" [24h]}})) or vector(0)',
+                   f'sum(count_over_time({_plog} | pii_detected="true" [24h])) or vector(0)',
                    unit="short", decimals=0,
                    thresholds=[{"color":"green","value":None},{"color":"yellow","value":10},{"color":"red","value":50}],
                    grid=_grid(4, 1, 4, 4), datasource=DS_LOKI),
         stat_panel("PHI Requests Today",
-                   f'sum(count_over_time({{{_tele} | data_classification="phi" [24h]}})) or vector(0)',
+                   f'sum(count_over_time({_tele} | data_classification="phi" [24h])) or vector(0)',
                    unit="short", decimals=0,
                    thresholds=[{"color":"blue","value":None}],
                    grid=_grid(8, 1, 4, 4), datasource=DS_LOKI),
         stat_panel("PII Requests Today",
-                   f'sum(count_over_time({{{_tele} | data_classification="pii" [24h]}})) or vector(0)',
+                   f'sum(count_over_time({_tele} | data_classification="pii" [24h])) or vector(0)',
                    unit="short", decimals=0,
                    thresholds=[{"color":"blue","value":None}],
                    grid=_grid(12, 1, 4, 4), datasource=DS_LOKI),
         stat_panel("Unique Prompt Hashes (24h)",
-                   f'count(count_over_time({{{_plog} [24h]}} | label_format ph=prompt_hash))',
+                   f'count(sum by (prompt_hash) (count_over_time({_plog} [24h])))',
                    unit="short", decimals=0,
                    thresholds=[{"color":"blue","value":None}],
                    grid=_grid(16, 1, 4, 4), datasource=DS_LOKI),
         piechart_panel(
             "Data Classification Distribution",
-            [{"datasource": DS_LOKI, "expr": f'sum by (data_classification) (count_over_time({{{_tele} [1h]}}))', "legendFormat": "{{data_classification}}", "refId": "A", "instant": True}],
+            [_loki_instant_target(f'sum by (data_classification) (count_over_time({_tele} [1h]))', "{{data_classification}}")],
             grid=_grid(20, 1, 4, 4), datasource=DS_LOKI,
         ),
 
@@ -976,30 +1033,33 @@ def build_d6() -> dict:
         timeseries_panel(
             "PII Detection Rate Over Time",
             [
-                _loki_target(f'sum(count_over_time({{{_plog} | pii_detected="true" [5m]}})) / clamp_min(sum(count_over_time({{{_plog} [5m]}})),1) * 100', "PII %"),
+                _loki_target(_loki_ratio(
+                    f'sum(count_over_time({_plog} | pii_detected="true" [5m]))',
+                    f'sum(count_over_time({_plog} [5m]))',
+                ), "PII %"),
             ],
             unit="percent", grid=_grid(0, 6, 12, 8), datasource=DS_LOKI,
         ),
         timeseries_panel(
             "PII Events by Tenant",
-            [_loki_target(f'sum by (tenant_id) (count_over_time({{{_plog} | pii_detected="true" [5m]}})) or vector(0)', "{{tenant_id}}")],
+            [_loki_target(f'sum by (tenant_id) (count_over_time({_plog} | pii_detected="true" [5m])) or vector(0)', "{{tenant_id}}")],
             unit="short", grid=_grid(12, 6, 12, 8), datasource=DS_LOKI,
         ),
         barchart_panel(
             "PHI + PII Volume by Tenant (last 1h)",
-            [{"datasource": DS_LOKI, "expr": f'sum by (tenant_id) (count_over_time({{{_tele} | data_classification=~"phi|pii" [1h]}}))', "legendFormat": "{{tenant_id}}", "refId": "A", "instant": True}],
+            [_loki_instant_target(f'sum by (tenant_id) (count_over_time({_tele} | data_classification=~"phi|pii" [1h]))', "{{tenant_id}}")],
             unit="short", grid=_grid(0, 14, 12, 8), datasource=DS_LOKI,
         ),
         timeseries_panel(
             "PHI Requests / min",
-            [_loki_target(f'sum(count_over_time({{{_tele} | data_classification="phi" [1m]}})) or vector(0)', "PHI req/min")],
+            [_loki_target(f'sum(count_over_time({_tele} | data_classification="phi" [1m])) or vector(0)', "PHI req/min")],
             unit="short", grid=_grid(12, 14, 12, 8), datasource=DS_LOKI,
         ),
 
         row_panel("Prompt Audit Log", y=22),
         logs_panel(
             "Prompt Log Events (PII-scrubbed)",
-            f'{_plog} | tenant_id =~ "$tenant"',
+            f'{_plog}',
             grid=_grid(0, 23, 24, 10), datasource=DS_LOKI,
         ),
 
@@ -1007,7 +1067,7 @@ def build_d6() -> dict:
         table_panel(
             "PHI / PII Requests with Trace Links",
             [{"datasource": DS_LOKI,
-              "expr": f'{_tele} | data_classification=~"phi|pii" | tenant_id=~"$tenant" | line_format "{{{{.request_id}}}} {{{{.tenant_id}}}} {{{{.model_name}}}} {{{{.trace_id}}}}"',
+              "expr": f'{_tele} | data_classification=~"phi|pii" | line_format "{{.request_id}} {{.tenant_id}} {{.model_name}} {{.trace_id}}"',
               "refId": "A"}],
             grid=_grid(0, 34, 24, 8), datasource=DS_LOKI,
         ),
@@ -1061,17 +1121,17 @@ def build_d7() -> dict:
                    unit="short", decimals=0,
                    thresholds=[{"color":"red","value":None},{"color":"green","value":1}],
                    grid=_grid(16, 1, 4, 4)),
-        alertlist_panel("Infrastructure Alerts", grid=_grid(20, 1, 4, 4)),
+        text_panel("Infrastructure Alerts", "*Requires Grafana Alertmanager — not configured in local dev.*", grid=_grid(20, 1, 4, 4)),
 
         row_panel("HPA Scaling", y=5),
         timeseries_panel(
             "HPA Current vs Desired Replicas",
-            [
-                _prom_target('kube_horizontalpodautoscaler_status_current_replicas{namespace="ai-gateway-ns"}', "current"),
-                _prom_target('kube_horizontalpodautoscaler_status_desired_replicas{namespace="ai-gateway-ns"}', "desired"),
-                _prom_target('kube_horizontalpodautoscaler_spec_min_replicas{namespace="ai-gateway-ns"}', "min"),
-                _prom_target('kube_horizontalpodautoscaler_spec_max_replicas{namespace="ai-gateway-ns"}', "max"),
-            ],
+            _prom_targets(
+                ('kube_horizontalpodautoscaler_status_current_replicas{namespace="ai-gateway-ns"}', "current"),
+                ('kube_horizontalpodautoscaler_status_desired_replicas{namespace="ai-gateway-ns"}', "desired"),
+                ('kube_horizontalpodautoscaler_spec_min_replicas{namespace="ai-gateway-ns"}', "min"),
+                ('kube_horizontalpodautoscaler_spec_max_replicas{namespace="ai-gateway-ns"}', "max"),
+            ),
             unit="short", grid=_grid(0, 6, 12, 8),
         ),
         timeseries_panel(
@@ -1093,7 +1153,10 @@ def build_d7() -> dict:
         ),
         timeseries_panel(
             "Node Memory Available Over Time",
-            [_prom_target('node_memory_MemAvailable_bytes', "available"), _prom_target('node_memory_MemTotal_bytes', "total")],
+            _prom_targets(
+                ('node_memory_MemAvailable_bytes', "available"),
+                ('node_memory_MemTotal_bytes', "total"),
+            ),
             unit="bytes", grid=_grid(0, 23, 12, 8),
         ),
         timeseries_panel(
@@ -1115,7 +1178,7 @@ def build_d7() -> dict:
         ),
         timeseries_panel(
             "Publish Error Rate by Reason",
-            [_prom_target('sum by (reason) (rate(ai_telemetry_runner_publish_errors_total[5m]))', "{{reason}}")],
+            [_prom_target('sum by (reason) (rate(ai_telemetry_runner_publish_errors_total[5m])) or label_replace(vector(0), "reason", "none", "", "")', "{{reason}}")],
             unit="ops", grid=_grid(0, 40, 12, 8),
         ),
         timeseries_panel(
@@ -1127,19 +1190,19 @@ def build_d7() -> dict:
         row_panel("OTel Collector Pipeline Health", y=48),
         timeseries_panel(
             "Collector Exporter Queue Size",
-            [
-                _prom_target('otelcol_exporter_queue_size{exporter="otlp/tempo"}',       "tempo queue"),
-                _prom_target('otelcol_exporter_queue_size{exporter="prometheusremotewrite"}', "prom queue"),
-                _prom_target('otelcol_exporter_queue_size{exporter="loki"}',             "loki queue"),
-            ],
+            _prom_targets(
+                ('otelcol_exporter_queue_size{exporter="otlp/tempo"}',       "tempo queue"),
+                ('otelcol_exporter_queue_size{exporter="prometheusremotewrite"}', "prom queue"),
+                ('otelcol_exporter_queue_size{exporter="loki"}',             "loki queue"),
+            ),
             unit="short", grid=_grid(0, 49, 12, 8),
         ),
         timeseries_panel(
-            "Collector Dropped Spans / Logs",
-            [
-                _prom_target('rate(otelcol_processor_dropped_spans_total[5m])', "dropped spans/s"),
-                _prom_target('rate(otelcol_processor_dropped_log_records_total[5m])', "dropped logs/s"),
-            ],
+            "Collector Export Failures",
+            _prom_targets(
+                ('rate(otelcol_exporter_send_failed_spans[5m])', "failed spans/s"),
+                ('rate(otelcol_exporter_send_failed_log_records[5m])', "failed logs/s"),
+            ),
             unit="ops", grid=_grid(12, 49, 12, 8),
         ),
     ]

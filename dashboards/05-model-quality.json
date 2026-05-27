@@ -194,9 +194,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg(avg_over_time({{service_name=~\".+\"} | json | event_type = \"eval_result\" | tenant_id =~ \"$tenant\"} | unwrap faithfulness [1h]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap faithfulness [1h]))",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -259,9 +261,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg(avg_over_time({{service_name=~\".+\"} | json | event_type = \"eval_result\" | tenant_id =~ \"$tenant\"} | unwrap relevance [1h]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -324,9 +328,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg(avg_over_time({{service_name=~\".+\"} | json | event_type = \"eval_result\" | tenant_id =~ \"$tenant\"} | unwrap groundedness [1h]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -381,9 +387,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" [1h])) / clamp_min(sum(count_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" [1h])),1) * 100",
+          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" [1h])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" [1h])) or on() vector(1))) * 100",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -438,9 +446,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(sum_over_time({{service_name=~\".+\"} | json | event_type = \"eval_result\"} | unwrap tokens_used [24h]))",
+          "expr": "sum(sum_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"eval_result\" | unwrap tokens_used [24h]))",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -503,9 +513,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | error != \"\" [24h]))",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" |~ \"mock_judge_timeout\" [24h])) or on() vector(0)",
+          "legendFormat": "",
+          "refId": "A",
           "instant": true,
-          "refId": "A"
+          "queryType": "instant"
         }
       ]
     },
@@ -568,27 +580,30 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | tenant_id=~\"$tenant\" | unwrap faithfulness [1h]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap faithfulness [1h]))",
           "legendFormat": "faithfulness",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         },
         {
           "datasource": {
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | tenant_id=~\"$tenant\" | unwrap relevance [1h]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
           "legendFormat": "relevance",
-          "refId": "A"
+          "refId": "B",
+          "queryType": "range"
         },
         {
           "datasource": {
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | tenant_id=~\"$tenant\" | unwrap groundedness [1h]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
           "legendFormat": "groundedness",
-          "refId": "A"
+          "refId": "C",
+          "queryType": "range"
         }
       ]
     },
@@ -644,10 +659,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | unwrap faithfulness [1h]))",
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap faithfulness [1h]))",
           "legendFormat": "{{model_name}}",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "queryType": "instant"
         }
       ]
     },
@@ -690,10 +706,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
           "legendFormat": "{{model_name}}",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "queryType": "instant"
         }
       ]
     },
@@ -736,10 +753,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg by (operation_name) (avg_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
+          "expr": "avg by (operation_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
           "legendFormat": "{{operation_name}}",
           "refId": "A",
-          "instant": true
+          "instant": true,
+          "queryType": "instant"
         }
       ]
     },
@@ -784,8 +802,11 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "{service_name=~\".+\"} | json | event_type = \"eval_result\" | faithfulness < 5 | tenant_id =~ \"$tenant\"",
-          "refId": "A"
+          "expr": "{service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | faithfulness < 5",
+          "refId": "A",
+          "queryType": "range",
+          "maxLines": 500,
+          "legendFormat": ""
         }
       ]
     },
@@ -835,9 +856,10 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | error != \"\" [5m]))",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" |~ \"mock_judge_timeout\" [5m])) or on() vector(0)",
           "legendFormat": "errors/5m",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         }
       ]
     },
@@ -887,9 +909,10 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | unwrap latency_ms [5m]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap latency_ms [5m]))",
           "legendFormat": "avg eval latency ms",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         }
       ]
     }

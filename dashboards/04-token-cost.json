@@ -187,9 +187,10 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(increase(ai_gateway_request_cost_total[24h]))",
-          "instant": true,
-          "refId": "A"
+          "expr": "sum(increase(ai_gateway_request_cost_USD_total[24h]))",
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -244,9 +245,10 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(rate(ai_gateway_request_cost_total[5m])) * 60",
-          "instant": true,
-          "refId": "A"
+          "expr": "sum(rate(ai_gateway_request_cost_USD_total[5m])) * 60",
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -302,8 +304,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(increase(ai_gateway_request_token_total[24h]))",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -359,8 +362,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(increase(ai_gateway_request_token_total{token_type=\"prompt\"}[24h]))",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -416,8 +420,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(increase(ai_gateway_request_token_total{token_type=\"completion\"}[24h]))",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -473,8 +478,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(increase(ai_gateway_request_token_total{token_type=\"cache_read\"}[24h]))",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -537,9 +543,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (model_name) (rate(ai_gateway_request_cost_total{tenant_id=~\"$tenant\"}[5m])) * 60",
+          "expr": "sum by (model_name) (rate(ai_gateway_request_cost_USD_total{tenant_id=~\"$tenant\"}[5m])) * 60",
           "legendFormat": "{{model_name}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -589,9 +597,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (tenant_id) (rate(ai_gateway_request_cost_total[5m])) * 60",
+          "expr": "sum by (tenant_id) (rate(ai_gateway_request_cost_USD_total[5m])) * 60",
           "legendFormat": "{{tenant_id}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -649,7 +659,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_total[1h])))",
+          "expr": "sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_USD_total[1h])))",
           "legendFormat": "{{model_name}}",
           "refId": "A",
           "instant": true
@@ -695,7 +705,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_total[24h])))",
+          "expr": "sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_USD_total[24h])))",
           "legendFormat": "{{model_name}}",
           "refId": "A",
           "instant": true
@@ -741,7 +751,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_total[24h])))",
+          "expr": "sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total[24h])))",
           "legendFormat": "{{tenant_id}}",
           "refId": "A",
           "instant": true
@@ -817,7 +827,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (tenant_id) (increase(ai_gateway_request_cost_total[24h]))",
+          "expr": "sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total[24h]))",
           "instant": true,
           "legendFormat": "{{tenant_id}}",
           "refId": "A"
@@ -870,9 +880,10 @@
             "type": "loki",
             "uid": "${DS_LOKI}"
           },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | budget_exhausted=\"True\" [2m]))",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | budget_exhausted=\"true\" [2m]))",
           "legendFormat": "budget exhausted events",
-          "refId": "A"
+          "refId": "A",
+          "queryType": "range"
         }
       ]
     },
@@ -935,27 +946,33 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"prompt\",tenant_id=~\"$tenant\"}[5m]))",
+          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"prompt\"}[5m]))",
           "legendFormat": "prompt",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"completion\",tenant_id=~\"$tenant\"}[5m]))",
+          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"completion\"}[5m]))",
           "legendFormat": "completion",
-          "refId": "A"
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"cache_read\",tenant_id=~\"$tenant\"}[5m]))",
+          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"cache_read\"}[5m]))",
           "legendFormat": "cache_read",
-          "refId": "A"
+          "refId": "C",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -1007,7 +1024,9 @@
           },
           "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"cache_read\"}[5m]))",
           "legendFormat": "cache_read (saved)",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -1016,7 +1035,9 @@
           },
           "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"prompt\"}[5m]))",
           "legendFormat": "prompt (billed)",
-          "refId": "A"
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         }
       ]
     }

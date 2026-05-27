@@ -182,8 +182,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "ai_gateway:sli:availability:6h * 100",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -244,8 +245,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "clamp_min(ai_gateway:slo:error_budget_remaining * 100, 0)",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -301,8 +303,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(rate(ai_gateway_request_count_total{environment=~\"$environment\"}[1m])) * 60",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -366,8 +369,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "sum(rate(ai_gateway_exception_count_total{environment=~\"$environment\"}[5m])) / clamp_min(sum(rate(ai_gateway_request_count_total{environment=~\"$environment\"}[5m])),1e-9) * 100",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -431,8 +435,9 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "expr": "ai_gateway:sli:latency_p99_ms:5m",
-          "instant": true,
-          "refId": "A"
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -487,9 +492,10 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(increase(ai_gateway_request_cost_total{environment=~\"$environment\"}[24h]))",
-          "instant": true,
-          "refId": "A"
+          "expr": "sum(increase(ai_gateway_request_cost_USD_total{environment=~\"$environment\"}[24h]))",
+          "refId": "A",
+          "range": true,
+          "instant": false
         }
       ]
     },
@@ -554,7 +560,9 @@
           },
           "expr": "sum by (model_name) (rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\"}[2m]))",
           "legendFormat": "{{model_name}}",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -606,7 +614,9 @@
           },
           "expr": "sum(rate(ai_gateway_exception_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\"}[5m])) / clamp_min(sum(rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\"}[5m])),1e-9) * 100",
           "legendFormat": "Error %",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
@@ -671,7 +681,9 @@
           },
           "expr": "(1 - ai_gateway:sli:availability:1h) / 0.005",
           "legendFormat": "1h burn rate",
-          "refId": "A"
+          "refId": "A",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -680,7 +692,9 @@
           },
           "expr": "(1 - ai_gateway:sli:availability:6h) / 0.005",
           "legendFormat": "6h burn rate",
-          "refId": "B"
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         },
         {
           "datasource": {
@@ -689,28 +703,19 @@
           },
           "expr": "(1 - ai_gateway:sli:availability:30m) / 0.005",
           "legendFormat": "30m burn rate",
-          "refId": "C"
+          "refId": "C",
+          "format": "time_series",
+          "range": true
         }
       ]
     },
     {
       "id": 12,
-      "type": "alertlist",
+      "type": "text",
       "title": "Firing Alerts",
       "options": {
-        "alertInstanceLabelFilter": "",
-        "alertName": "",
-        "dashboardAlerts": false,
-        "groupMode": "default",
-        "maxItems": 20,
-        "sortOrder": 1,
-        "stateFilter": {
-          "error": true,
-          "firing": true,
-          "noData": false,
-          "normal": false,
-          "pending": true
-        }
+        "content": "*Requires Grafana Alertmanager \u2014 not configured in local dev.*",
+        "mode": "markdown"
       },
       "gridPos": {
         "x": 16,
@@ -818,7 +823,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_total{environment=~\"$environment\"}[1h])))",
+          "expr": "sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total{environment=~\"$environment\"}[1h])))",
           "legendFormat": "{{tenant_id}}",
           "refId": "A",
           "instant": true

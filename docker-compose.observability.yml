@@ -28,7 +28,7 @@ services:
     image: otel/opentelemetry-collector-contrib:0.111.0
     command: ["--config=/etc/otelcol/config.yaml"]
     volumes:
-      - ./infra/otel-collector-config.yaml:/etc/otelcol/config.yaml:ro
+      - ./infra/otel-collector-local-config.yaml:/etc/otelcol/config.yaml:ro
     ports:
       - "4317:4317"   # OTLP gRPC
       - "4318:4318"   # OTLP HTTP
