@@ -1,6 +1,8 @@
 # How This Project Works
 
-A guide for junior software developers. This document explains what the **AI Gateway Telemetry** project does, how the pieces fit together, and where to start reading code.
+A guide for developers who already know the basics. **Brand new?** Read [BEGINNER_GUIDE.md](./BEGINNER_GUIDE.md) first — it defines Prometheus, Tempo, Loki, OTel Collector, and walks through one request step by step.
+
+This document goes deeper: architecture diagrams, every service explained, deployment, and code reading order.
 
 ---
 
@@ -1167,6 +1169,9 @@ Replace the `generate_event()` call in `run_one_batch()` with your gateway's eve
 
 | Document | Audience |
 |----------|----------|
+| [docs/BEGINNER_GUIDE.md](./BEGINNER_GUIDE.md) | **Start here** — glossary, labs, FAQ |
+| [docs/DASHBOARD_METRICS.md](./DASHBOARD_METRICS.md) | Grafana metrics — meaning, why, which dashboard |
+| [docs/README.md](./README.md) | Documentation index |
 | [README.md](../README.md) | Quick start, deploy commands, env vars |
 | [docs/semantic-conventions.md](./semantic-conventions.md) | Span/metric naming contract |
 | [PRODUCTION_GUIDE.md](../PRODUCTION_GUIDE.md) | Production operations |

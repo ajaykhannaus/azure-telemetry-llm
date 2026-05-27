@@ -1,0 +1,467 @@
+# Dashboard Metrics Guide
+
+**Audience:** Developers learning what each Grafana panel shows, which metric powers it, and why that metric exists.
+
+**Prerequisites:** Read [BEGINNER_GUIDE.md](./BEGINNER_GUIDE.md) first if you are new to Prometheus and Grafana.
+
+---
+
+## How metrics get from Python to a dashboard
+
+```
+generate_event() in synthetic_generator.py
+        │
+        ▼
+record_metrics(event) in otel_metrics.py     ← creates the numbers
+        │
+        ▼
+OpenTelemetry SDK → OTLP → OTel Collector → Prometheus
+        │
+        ▼
+Grafana dashboard panel runs a PromQL query   ← reads the numbers
+```
+
+Every request triggers `record_metrics()` once. Dashboards **query** the stored time series — they do not compute costs or latency themselves.
+
+**Source code:** `generator/otel_metrics.py` → `record_metrics()`  
+**Canonical names:** `generator/semantic_conventions.py` → `METRIC_*` constants  
+**Alert rules:** `rules.yml`  
+**Dashboards:** `dashboards/01-*.json` through `dashboards/07-*.json`
+
+---
+
+## Prometheus naming (read this once)
+
+OpenTelemetry metric names get transformed when they land in Prometheus:
+
+| Defined in code | Appears in Prometheus as | Type |
+|-----------------|--------------------------|------|
+| `ai_gateway_request_count` | `ai_gateway_request_count_total` | Counter |
+| `ai_gateway_request_duration` (unit: ms) | `ai_gateway_request_duration_milliseconds_bucket`, `_sum`, `_count` | Histogram |
+| `ai_gateway_request_token` | `ai_gateway_request_token_total` | Counter |
+| `ai_gateway_request_cost` (unit: USD) | `ai_gateway_request_cost_USD_total` | Counter |
+| `ai_gateway_exception_count` | `ai_gateway_exception_count_total` | Counter |
+| `ai_telemetry_runner_batch_duration_seconds` | `ai_telemetry_runner_batch_duration_seconds_bucket`, `_sum`, `_count` | Histogram |
+| `ai_telemetry_runner_publish_errors_total` | (same) | Counter |
+| `ai_telemetry_runner_kafka_queue_depth` | (same) | Gauge |
+
+**Counter** = always goes up (request count, total cost). Use `rate()` or `increase()` in queries.  
+**Histogram** = distribution of values (latency). Use `histogram_quantile()` for p50/p95/p99.  
+**Gauge** = current value at a point in time (queue depth).
+
+---
+
+## Labels (dimensions you can filter by)
+
+Every gateway metric shares these labels (from `record_metrics()`):
+
+| Label | Meaning | Example values |
+|-------|---------|----------------|
+| `tenant_id` | Client / team using the gateway | `healthcare-portal`, `legal-firm` |
+| `model_name` | LLM model used | `claude-sonnet-4-5`, `gpt-4o-mini` |
+| `model_provider` | Vendor | `anthropic`, `openai`, `google` |
+| `operation_name` | What the request did | `chat_completion`, `code_generation` |
+| `status` | Outcome | `success`, `error` |
+| `environment` | Deployment | `dev`, `staging`, `prod` |
+| `region` | Cloud region | `us-east-1` |
+| `service` | Logical service name | `ai-gateway` |
+
+**Error-only extra labels** on `ai_gateway_exception_count_total`:
+
+| Label | Meaning | Example |
+|-------|---------|---------|
+| `error_type` | Specific failure | `rate_limit`, `timeout`, `model_unavailable` |
+| `error_category` | Grouped failure class | `throttling`, `availability`, `auth` |
+| `http_status` | HTTP code | `429`, `504`, `500` |
+
+**Token metric extra label** on `ai_gateway_request_token_total`:
+
+| Label | Meaning |
+|-------|---------|
+| `token_type` | `prompt`, `completion`, or `cache_read` |
+
+---
+
+## Core application metrics (the five golden metrics)
+
+These five are recorded for **every LLM request**.
+
+### 1. `ai_gateway_request_count_total`
+
+| | |
+|---|---|
+| **Type** | Counter |
+| **Meaning** | Number of LLM requests processed |
+| **Recorded when** | Every event, success or error (+1 each time) |
+| **Unit** | requests |
+| **Why it exists** | Traffic volume is the most basic health signal — are requests flowing? |
+
+**Typical queries:**
+
+```promql
+# Requests per minute
+sum(rate(ai_gateway_request_count_total[1m])) * 60
+
+# By model
+sum by (model_name) (rate(ai_gateway_request_count_total[2m])) * 60
+```
+
+**Used in dashboards:** 01, 02, 04 (filters), 07 (filters)  
+**Key panels:** "Requests / min", "Request Rate by Model", "Requests by Tenant"
+
+---
+
+### 2. `ai_gateway_request_duration_milliseconds` (histogram)
+
+| | |
+|---|---|
+| **Type** | Histogram |
+| **Meaning** | How long each request took (end-to-end latency) |
+| **Recorded when** | Every event — value = `event["latency_ms"]` |
+| **Unit** | milliseconds |
+| **Why it exists** | Users care about speed. Percentiles (p50/p95/p99) show typical vs worst-case experience. |
+
+**Typical queries:**
+
+```promql
+# p99 latency over last 5 minutes
+histogram_quantile(0.99,
+  sum by (le) (rate(ai_gateway_request_duration_milliseconds_bucket[5m]))
+)
+
+# Average latency
+sum(rate(ai_gateway_request_duration_milliseconds_sum[5m]))
+/ sum(rate(ai_gateway_request_duration_milliseconds_count[5m]))
+```
+
+**Used in dashboards:** 01, 03  
+**Key panels:** "p99 Latency (5m)", "Request Latency — p50/p95/p99", "p95 Latency by Model"
+
+**SLO alert:** p99 > 5000 ms for 5 minutes → `AIGatewayHighLatencyP99` in `rules.yml`
+
+**Exemplars:** When recorded inside an active trace span, Grafana can link a latency point to a Tempo trace (panel: "p99 Latency with Trace Exemplars").
+
+---
+
+### 3. `ai_gateway_request_token_total`
+
+| | |
+|---|---|
+| **Type** | Counter |
+| **Meaning** | Total tokens consumed, split by type |
+| **Recorded when** | Every event — three increments per request (prompt, completion, cache_read) |
+| **Unit** | tokens |
+| **Why it exists** | Token usage drives LLM cost and capacity planning. Cache-read tokens indicate cost savings from prompt caching. |
+
+**Typical queries:**
+
+```promql
+# Total tokens in last 24h
+sum(increase(ai_gateway_request_token_total[24h]))
+
+# Prompt tokens only
+sum(increase(ai_gateway_request_token_total{token_type="prompt"}[24h]))
+
+# Token rate by type
+sum(rate(ai_gateway_request_token_total{token_type="completion"}[5m]))
+```
+
+**Used in dashboards:** 04  
+**Key panels:** "Total Tokens Today", "Prompt/Completion/Cache Read Tokens", "Token Consumption Rate by Type"
+
+---
+
+### 4. `ai_gateway_request_cost_USD_total`
+
+| | |
+|---|---|
+| **Type** | Counter |
+| **Meaning** | Cumulative spend in US dollars |
+| **Recorded when** | Every event — value = `event["cost_usd"]` (calculated from model pricing × tokens) |
+| **Unit** | USD |
+| **Why it exists** | FinOps and tenant chargeback — who is spending how much, on which model? |
+
+**Typical queries:**
+
+```promql
+# Total cost today
+sum(increase(ai_gateway_request_cost_USD_total[24h]))
+
+# Cost per minute by tenant
+sum by (tenant_id) (rate(ai_gateway_request_cost_USD_total[5m])) * 60
+
+# Cost share by model (last hour)
+sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_USD_total[1h])))
+```
+
+**Used in dashboards:** 01, 04  
+**Key panels:** "Total Cost Today", "Cost Rate by Model/Tenant", "Daily Budget Utilisation"
+
+---
+
+### 5. `ai_gateway_exception_count_total`
+
+| | |
+|---|---|
+| **Type** | Counter |
+| **Meaning** | Number of **failed** requests only |
+| **Recorded when** | Only when `event["status"] == "error"` (+1 per error) |
+| **Unit** | errors |
+| **Why it exists** | Separates failure analysis from total traffic. Lets you break down errors by type, HTTP code, and tenant without mixing in successes. |
+
+**Typical queries:**
+
+```promql
+# Error rate as percentage
+sum(rate(ai_gateway_exception_count_total[5m]))
+/ sum(rate(ai_gateway_request_count_total[5m])) * 100
+
+# Errors by type
+sum by (error_type) (rate(ai_gateway_exception_count_total[5m]))
+```
+
+**Used in dashboards:** 01, 02  
+**Key panels:** "Error Rate", "Error Rate by Type", "Errors by HTTP Status Code"
+
+**Note:** Error **rate** is usually computed as `exceptions / total_requests`, not by reading this counter alone.
+
+---
+
+## Runner self-metrics (observe the observer)
+
+These measure the **telemetry pipeline itself**, not LLM traffic. Recorded in `record_self_metric()` at the end of each batch.
+
+### 6. `ai_telemetry_runner_batch_duration_seconds`
+
+| | |
+|---|---|
+| **Type** | Histogram |
+| **Meaning** | Wall-clock time to process one full batch (all events + flush) |
+| **Why it exists** | If batches take longer than `BATCH_INTERVAL_S` (5s), the runner falls behind. Detects performance regressions in the pipeline code. |
+
+**Used in:** Dashboard 07, alert `AITelemetryRunnerStuck` (zero batch rate for 2 min)
+
+---
+
+### 7. `ai_telemetry_runner_publish_errors_total`
+
+| | |
+|---|---|
+| **Type** | Counter |
+| **Label** | `reason` — e.g. `exception`, `flush_error` |
+| **Meaning** | Times Event Hubs publish failed after retries |
+| **Why it exists** | Silent data loss is worse than loud failure. Surfaces Kafka/Event Hubs connectivity issues. |
+
+**Used in:** Dashboard 07, alert `AITelemetryPublishErrors`
+
+---
+
+### 8. `ai_telemetry_runner_kafka_queue_depth`
+
+| | |
+|---|---|
+| **Type** | Gauge |
+| **Meaning** | Messages waiting in the local Kafka producer buffer |
+| **Why it exists** | Rising queue depth = broker slow or network congested. Early warning before publish errors spike. |
+
+**Used in:** Dashboard 07 — "Kafka Queue Depth"
+
+---
+
+## Derived metrics (computed by Prometheus rules)
+
+These do **not** come directly from the runner. Prometheus pre-computes them in `rules.yml` so dashboards and alerts query stable series.
+
+| Metric | Formula (simplified) | Meaning | Why derived |
+|--------|---------------------|---------|-------------|
+| `ai_gateway:sli:availability:5m` | success requests ÷ total requests (5m window) | Availability SLI | Reused by alerts and multiple panels |
+| `ai_gateway:sli:availability:30m` | same, 30m window | Longer-window availability | Slow-burn alert |
+| `ai_gateway:sli:availability:1h` | same, 1h window | Hourly availability | Fast-burn alert |
+| `ai_gateway:sli:availability:6h` | same, 6h window | Half-day availability | Executive dashboard headline |
+| `ai_gateway:sli:latency_p99_ms:5m` | p99 of latency histogram | Latency SLI | Shared by dashboard 01 and 03 |
+| `ai_gateway:slo:error_budget_remaining` | how much of 99.5% SLO budget is left | Error budget (0–100%) | Executive "are we on track for the month?" |
+| `ai_gateway:pods_running:current` | count of Running pods | Infra health | Dashboard 07 |
+
+**SLO target:** 99.5% availability over 30 days (0.5% error budget).
+
+**Burn rate panels** on dashboard 01 show how fast you are consuming that budget:
+
+```promql
+(1 - ai_gateway:sli:availability:1h) / 0.005
+```
+
+A value of `14.4` means "burning 14.4× faster than sustainable" → page on-call.
+
+---
+
+## Dashboard-by-dashboard metric map
+
+### Dashboard 01 — Executive Overview
+
+**Audience:** Leadership, on-call lead — "Are we healthy?"
+
+| Panel | Metric / query | What it tells you |
+|-------|----------------|-------------------|
+| Availability (6h SLI) | `ai_gateway:sli:availability:6h` | % of successful requests over 6 hours |
+| Error Budget Remaining | `ai_gateway:slo:error_budget_remaining` | How much monthly error budget is left |
+| Requests / min | `rate(ai_gateway_request_count_total)` | Current traffic volume |
+| Error Rate | `exception_count / request_count` | % of requests failing now |
+| p99 Latency (5m) | `ai_gateway:sli:latency_p99_ms:5m` | Slowest 1% of requests — user pain metric |
+| Total Cost Today | `increase(ai_gateway_request_cost_USD_total[24h])` | Daily spend |
+| Request Rate by Model | `rate(...)` by `model_name` | Which models are busiest |
+| Error Rate Over Time | error rate over time | Trend — getting worse? |
+| SLO Burn Rate | availability burn formula | How fast error budget is draining |
+| Requests/Cost by Tenant | `increase(...)` by `tenant_id` | Who uses the gateway most |
+
+---
+
+### Dashboard 02 — Traffic & Request Analytics
+
+**Audience:** Product / ops — "Who is using what?"
+
+| Panel | Metric / query | What it tells you |
+|-------|----------------|-------------------|
+| Requests / min by Model | `rate(request_count)` by `model_name` | Model popularity |
+| Requests / min by Tenant | by `tenant_id` | Client traffic share |
+| Requests / min by Operation | by `operation_name` | Use-case mix (chat vs code vs summarisation) |
+| Model Distribution | `increase(request_count[1h])` | Hourly model share |
+| Model Provider Distribution | by `model_provider` | Anthropic vs OpenAI vs Google split |
+| Error Rate by Type | `rate(exception_count)` by `error_type` | rate_limit vs timeout vs auth failures |
+| Errors by HTTP Status | by `http_status` | 429 vs 504 vs 500 breakdown |
+| Error Category Mix | by `error_category` | throttling vs availability vs validation |
+| SLA Breach Rate by Tenant | error rate filtered by tenant | Which clients hit SLA limits |
+| Routing Reason (Loki) | log query on `routing_reason` | Why a model was chosen (cost vs latency vs fallback) |
+| Live Telemetry Events (Loki) | log stream | Raw event feed for debugging |
+
+---
+
+### Dashboard 03 — Latency & Performance
+
+**Audience:** SRE — "Why is it slow?"
+
+| Panel | Metric / query | What it tells you |
+|-------|----------------|-------------------|
+| p50 / p95 / p99 | `histogram_quantile` on duration | Full latency distribution |
+| Current p99/p95/p50 | single-number stat panels | At-a-glance latency |
+| Avg Latency | `_sum / _count` | Mean (less useful than percentiles, but simple) |
+| Latency Heatmap | duration buckets over time | Visual pattern of slow periods |
+| p95 by Model | percentile by `model_name` | Which models are slowest |
+| p95 by SLA Tier | percentile by environment/tier | Premium vs standard client experience |
+| Latency Phase Breakdown (Loki) | `queue_wait_ms`, `model_inference_ms`, `stream_response_ms` from logs | **Where** time is spent (queue vs model vs streaming) |
+| Tokens / Second (Loki) | `tokens_per_second` from logs | Streaming throughput |
+| First-Token Latency (Loki) | `first_token_ms` | Time-to-first-token for streaming |
+| p99 with Exemplars | duration + Tempo link | Click slow point → open trace |
+
+**Why Loki for phase breakdown?** Phase timings (`queue_wait_ms`, etc.) are high-cardinality per request — stored in logs and traces, not Prometheus counters.
+
+---
+
+### Dashboard 04 — Token & Cost Analytics
+
+**Audience:** FinOps — "How much are we spending?"
+
+| Panel | Metric / query | What it tells you |
+|-------|----------------|-------------------|
+| Total Cost Today | `increase(cost[24h])` | Daily spend headline |
+| Cost Rate (USD/min) | `rate(cost) * 60` | Current burn rate |
+| Total/Prompt/Completion/Cache Tokens | `increase(token[24h])` by `token_type` | Token volume breakdown |
+| Cost Rate by Model/Tenant | `rate(cost)` grouped | Who/what drives spend |
+| Cost Share by Model | proportional breakdown | Model cost mix |
+| Budget Utilisation (Loki) | `daily_spend_usd / budget_usd` from logs | Per-tenant budget consumption |
+| Budget-Exhausted Events (Loki) | `budget_exhausted=true` | Clients hitting daily cap |
+| Cache vs Prompt Tokens | cache_read vs prompt rate | Caching cost savings |
+
+---
+
+### Dashboard 05 — Model Quality & Evaluation
+
+**Audience:** ML ops — "Are answers good?" (requires `EVAL_ENABLED=true`)
+
+Most panels use **Loki log queries** on `event_type="eval_result"`, not Prometheus:
+
+| Panel | Source field | Meaning |
+|-------|--------------|---------|
+| Avg Faithfulness | `faithfulness` (0–10) | Does the response stick to the prompt facts? |
+| Avg Relevance | `relevance` (0–10) | Does it answer what was asked? |
+| Avg Groundedness | `groundedness` (0–10) | Are claims supported by sources? |
+| Evaluation Coverage | eval events ÷ total events | What % of traffic is being judged |
+| Evaluator Daily Tokens | `tokens_used` | Cost of running the judge LLM |
+| Low-Quality Responses | `faithfulness < 5` | Flagged bad responses |
+| Evaluator Latency | `latency_ms` on eval calls | Judge API performance |
+
+**Why logs not metrics?** Quality scoring is sampled (~1%) and rich — easier to store as structured log events than as Prometheus labels.
+
+---
+
+### Dashboard 06 — Safety & PII
+
+**Audience:** Security / compliance
+
+Uses **Loki** on `prompt_log_event` and `telemetry_event` logs:
+
+| Panel | Source | Meaning |
+|-------|--------|---------|
+| PII Detection Rate | `pii_detected=true` ÷ total prompt logs | % of prompts containing PII |
+| PII Hits (24h) | count of PII detections | Volume of redactions |
+| PHI / PII Request Count | `data_classification` label | Requests handling sensitive data |
+| Unique Prompts Audited | distinct `prompt_hash` | Audit coverage |
+| Data Classification Mix | by `data_classification` | phi vs pii vs confidential vs internal |
+| PII by Tenant | grouped by `tenant_id` | Which clients send sensitive data |
+
+**Why not Prometheus?** PII details must never become metric labels (cardinality + compliance risk).
+
+---
+
+### Dashboard 07 — Infra & Runner Health
+
+**Audience:** Platform team — "Is the pipeline healthy?"
+
+Mix of **simulated Kubernetes metrics** (from `pod_metrics_simulator.py` in dev), **runner self-metrics**, and **OTel Collector metrics**:
+
+| Panel | Metric | Meaning |
+|-------|--------|---------|
+| Pods Running | `kube_pod_status_phase{phase="Running"}` | Gateway pod count (simulated in POC) |
+| HPA Desired/Current Replicas | `kube_hpa_status_*` | Auto-scaling state |
+| Pod Restarts | `kube_pod_container_status_restarts_total` | Crash loops |
+| Node Memory Available % | `node_memory_*` | Cluster capacity |
+| Batch Duration p99 | `ai_telemetry_runner_batch_duration_seconds` | Runner processing speed |
+| Kafka Queue Depth | `ai_telemetry_runner_kafka_queue_depth` | Publish backlog |
+| Publish Errors | `ai_telemetry_runner_publish_errors_total` | Event Hubs failures |
+| Collector Export Queue | `otelcol_exporter_queue_size` | Collector backpressure |
+| Collector Send Failures | `otelcol_exporter_send_failed_*` | Tempo/Prometheus/Loki export errors |
+
+---
+
+## Prometheus vs Loki in dashboards — quick rule
+
+| Use Prometheus when… | Use Loki (logs) when… |
+|----------------------|------------------------|
+| Aggregating over many requests | Need per-request detail |
+| Charting rates, percentiles, totals | Phase timings, routing reason, PII flags |
+| Alerting (SLO burn, error rate) | Audit trails, eval scores, budget status |
+| Low-cardinality labels | High-cardinality or sensitive fields |
+
+---
+
+## Common PromQL patterns used in this project
+
+| Pattern | Example | Meaning |
+|---------|---------|---------|
+| **Rate per second** | `rate(metric[5m])` | How fast counter is increasing |
+| **Rate per minute** | `rate(metric[5m]) * 60` | Requests/min, USD/min |
+| **Total in window** | `increase(metric[24h])` | "Today" totals |
+| **Percentage** | `a / clamp_min(b, 1e-9) * 100` | Error rate % (avoid divide-by-zero) |
+| **Percentile** | `histogram_quantile(0.99, ...)` | p99 latency |
+| **Top N** | `sort_desc(sum by (label) (...))` | Rank tenants/models by volume |
+
+---
+
+## Where to go next
+
+| Topic | Doc |
+|-------|-----|
+| Metric naming contract | [semantic-conventions.md](./semantic-conventions.md) |
+| How metrics are recorded in code | `generator/otel_metrics.py` |
+| Alert thresholds | `rules.yml` |
+| Architecture overview | [HOW_IT_WORKS.md](./HOW_IT_WORKS.md) |
+| Beginner glossary | [BEGINNER_GUIDE.md](./BEGINNER_GUIDE.md) |
