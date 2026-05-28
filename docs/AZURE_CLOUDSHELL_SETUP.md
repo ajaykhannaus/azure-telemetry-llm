@@ -1,145 +1,105 @@
-# Azure Cloud Shell Setup (Beginner — One Command at a Time)
+# Azure Cloud Shell Setup (Beginner — All on Azure Bash, No Mac)
 
-Open [Azure Cloud Shell](https://shell.azure.com) → choose **Bash** (not PowerShell).
+Open [Azure Cloud Shell](https://shell.azure.com) → choose **Bash**.
 
-Run each command below **one at a time**. Wait for it to finish before the next.  
-If you see an error, stop and copy the error message.
-
-Your settings:
+Run **one command at a time**. Wait for each to finish.
 
 | Setting | Value |
 |---|---|
-| Subscription | `az-uc-analytics-sandbox-eastus` |
 | Subscription ID | `216d62c8-0f0c-4e5c-9cda-cc553e7ab186` |
 | Resource group | `az03-al-titan-sandbox-rg` |
 
 ---
 
-## Part A — Check you have access
+## Part A — Check access
 
-### Command 1 — Select your subscription
+### Command 1
 
 ```bash
 az account set --subscription "216d62c8-0f0c-4e5c-9cda-cc553e7ab186"
 ```
 
-**Success:** no output (that is normal).
+**Success:** no output.
 
 ---
 
-### Command 2 — Confirm the resource group exists
+### Command 2
 
 ```bash
 az group show --name "az03-al-titan-sandbox-rg" -o table
 ```
 
-**Success:** a table showing `az03-al-titan-sandbox-rg` and `eastus` (or similar region).
+**Success:** table with your resource group.
 
 ---
 
-### Command 3 — Check your role (need Contributor)
+### Command 3
 
 ```bash
 az role assignment list --assignee "$(az ad signed-in-user show --query id -o tsv)" --resource-group "az03-al-titan-sandbox-rg" -o table
 ```
 
-**Success:** a row with role **Contributor**.
-
-**If you only see Reader:** ask your admin for Contributor, then stop here.
+**Success:** role **Contributor**.
 
 ---
 
-## Part B — Download the project
+## Part B — Get the project
 
-### Command 4 — Clone the repo from GitHub
+### Command 4
 
 ```bash
 git clone https://github.com/ajaykhannaus/observability.git
 ```
 
-**Success:** `Cloning into 'observability'...`
-
 ---
 
-### Command 5 — Go into the project folder
+### Command 5
 
 ```bash
 cd observability
 ```
 
-**Success:** your prompt changes to show `observability`.
-
 ---
 
-### Command 6 — Get the latest code
+### Command 6
 
 ```bash
 git pull
 ```
 
-**Success:** `Already up to date.` or a list of updated files.
-
 ---
 
-## Part C — Bootstrap settings (already in repo)
+## Part C — Prepare config
 
-### Command 7 — Copy sandbox config
-
-No need to type settings — they are in the repo:
+### Command 7
 
 ```bash
 cp azure/bootstrap-azure.sandbox.env azure/bootstrap-azure.env
 ```
 
-**Success:** no output.
+---
 
-**Alternative:** run the prepare helper (does command 7 + command 9):
+### Command 8
 
 ```bash
-./scripts/cloudshell-prepare.sh
+chmod +x scripts/cloudshell-prepare.sh && ./scripts/cloudshell-prepare.sh
 ```
 
 ---
 
-### Command 8 — Confirm the file
+## Part D — Bootstrap (creates Azure resources)
 
-```bash
-cat azure/bootstrap-azure.env
-```
-
-**Success:** you see your subscription and resource group names.
-
----
-
-## Part D — Preflight (safe test, nothing created)
-
-### Command 9 — Make scripts executable
-
-Skip if you already ran `./scripts/cloudshell-prepare.sh`.
-
-```bash
-chmod +x scripts/bootstrap-azure.sh infra/bootstrap.sh infra/adx-data-connection.sh scripts/cloudshell-prepare.sh
-```
-
-**Success:** no output.
-
----
-
-### Command 10 — Run preflight check
+### Command 9 — safe test
 
 ```bash
 ./scripts/bootstrap-azure.sh --preflight
 ```
 
-**Success:** ends with `preflight ok`.
-
-**If ACR or Event Hub name is taken:** edit names in step 11, then re-run command 10.
+**Success:** `preflight ok`
 
 ---
 
-### Command 11 (only if preflight failed on name conflict)
-
-Change names by adding your initials, e.g. `aj`:
+### Command 10 (only if name conflict)
 
 ```bash
 sed -i 's/acrtelemetrydev/acrtelemetrydevaj/g' azure/bootstrap-azure.env
@@ -153,175 +113,94 @@ sed -i 's/evhns-telemetry-dev/evhns-telemetry-devaj/g' azure/bootstrap-azure.env
 sed -i 's/adxtelemetrydev/adxtelemetrydevaj/g' azure/bootstrap-azure.env
 ```
 
-Then run command 10 again:
-
-```bash
-./scripts/bootstrap-azure.sh --preflight
-```
+Then re-run command 9.
 
 ---
 
-## Part E — Full bootstrap (creates Azure resources)
-
-### Command 12 — Run bootstrap (~15–25 minutes)
+### Command 11 — full bootstrap (~15–25 min)
 
 ```bash
 ./scripts/bootstrap-azure.sh
 ```
 
-**Success:** ends with `Done` and shows paths for env, grafana, adx.
-
-**Wait:** do not close Cloud Shell until this finishes.
+**Success:** ends with `Done`. Do not close Cloud Shell.
 
 ---
 
-## Part F — ADX database tables (one-time)
+## Part E — ADX schema (Portal, one-time)
 
-### Command 13 — Show the schema file
+### Command 12 — show schema
 
 ```bash
 cat infra/adx-schema.kql
 ```
 
-**Success:** you see KQL table definitions.
+Copy output → Azure Portal → **Azure Data Explorer** → cluster `adxtelemetrydev` → database `observability` → **Run**.
 
 ---
 
-### Command 14 — Apply schema in Azure Portal (manual)
+## Part F — Deploy app (still in Cloud Shell, no Mac)
 
-1. Open [Azure Portal](https://portal.azure.com)
-2. Search **Azure Data Explorer**
-3. Open cluster **adxtelemetrydev** (or your name from bootstrap)
-4. Click **Query**
-5. Select database **observability**
-6. Copy all text from command 13 and paste into the query window
-7. Click **Run**
+### Command 13
 
-**Success:** tables like `AuditLog`, `AppEvents` are created.
+```bash
+chmod +x scripts/cloudshell-deploy.sh
+```
 
 ---
 
-## Part G — Copy secrets to your Mac
+### Command 14 — deploy Container App + Grafana + verify
 
-### Command 15 — Show your secrets file
+```bash
+./scripts/cloudshell-deploy.sh
+```
+
+**Success:** `Done — app is running in Azure.`
+
+---
+
+### Command 15 — optional: save secrets
 
 ```bash
 cat .env.azure
 ```
 
-**Success:** lines like `AZURE_CLIENT_ID=`, `EVENTHUB_CONNECTION_STRING=`, etc.
-
-Copy everything, or use Cloud Shell **Download** on file `.env.azure`.
+Download via Cloud Shell **Download** if you want a copy for later.
 
 ---
 
-## Part H — Deploy from your Mac (after Cloud Shell)
+## Checklist (all Azure Bash)
 
-Open **Terminal on your Mac** (not Cloud Shell). Run one at a time:
-
-### Command 16 — Go to your project
-
-```bash
-cd /Users/mac/Documents/CompanyWork/EXLData/Telemetry
-```
-
----
-
-### Command 17 — Save secrets (if you downloaded `.env.azure`)
-
-```bash
-cp .env.azure .env
-```
-
-Or paste Cloud Shell output into `.env` manually.
-
----
-
-### Command 18 — Make deploy scripts executable
-
-```bash
-chmod +x scripts/deploy-local.sh scripts/azure-local-login.sh
-```
-
----
-
-### Command 19 — Login with Service Principal (from `.env`)
-
-```bash
-./scripts/deploy-local.sh login
-```
-
-**Success:** `Azure CLI authenticated as SP ...`
-
----
-
-### Command 20 — Deploy the app
-
-```bash
-./scripts/deploy-local.sh deploy
-```
-
-**Success:** deploy complete message.
-
----
-
-### Command 21 — Import Grafana dashboard
-
-```bash
-./scripts/deploy-local.sh grafana
-```
-
----
-
-### Command 22 — Verify everything works
-
-```bash
-./scripts/deploy-local.sh verify
-```
-
-**Success:** health checks pass.
-
----
-
-## Quick checklist
-
-| Step | Command | Done? |
+| # | Command | Done? |
 |---|---|---|
 | 1 | `az account set ...` | ☐ |
 | 2 | `az group show ...` | ☐ |
 | 3 | `az role assignment list ...` | ☐ |
-| 4 | `git clone ...` | ☐ |
-| 5 | `cd observability` | ☐ |
-| 6 | `git pull` | ☐ |
-| 7 | `cp azure/bootstrap-azure.sandbox.env azure/bootstrap-azure.env` | ☐ |
-| 10 | `./scripts/bootstrap-azure.sh --preflight` | ☐ |
-| 12 | `./scripts/bootstrap-azure.sh` | ☐ |
-| 14 | ADX schema in Portal | ☐ |
-| 15 | `cat .env.azure` | ☐ |
-| 19–22 | deploy from Mac | ☐ |
+| 4–6 | clone + cd + pull | ☐ |
+| 7–8 | copy config + prepare | ☐ |
+| 9 | preflight | ☐ |
+| 11 | bootstrap | ☐ |
+| 12 | ADX schema in Portal | ☐ |
+| 14 | `cloudshell-deploy.sh` | ☐ |
 
 ---
 
-## If something fails
+## Troubleshooting
 
-| Error | What to do |
+| Problem | Fix |
 |---|---|
-| `Authorization failed` | Re-run command 3 — need Contributor |
-| ACR name not available | Run command 11, then 10 again |
-| `git clone` fails | Check internet / try again |
-| Bootstrap stuck on ADX | Normal — wait up to 10 minutes |
-| Mac deploy fails | Make sure `.env` has all values from `.env.azure` |
+| `Authorization failed` | Need Contributor (command 3) |
+| ACR / Event Hub name taken | Command 10, then 9 again |
+| ` .env.azure not found` | Run command 11 first |
+| Deploy fails on Event Hub | Re-run command 11 |
 
 ---
 
-## Related files
+## Scripts (all in repo)
 
-| File | Purpose |
+| Script | Purpose |
 |---|---|
-| `azure/bootstrap-azure.sandbox.env` | Pre-filled sandbox settings (committed — safe to clone) |
-| `azure/bootstrap-azure.env` | Active config (gitignored — created from sandbox file) |
-| `scripts/cloudshell-prepare.sh` | Copy config + chmod scripts |
-| `scripts/bootstrap-azure.sh` | Full Azure provisioning |
-| `infra/adx-schema.kql` | ADX tables and routing policies |
-| `scripts/deploy-local.sh` | Deploy from Mac using `.env` |
-| `docs/AZURE_OBSERVABILITY.md` | How other apps connect later |
+| `scripts/cloudshell-prepare.sh` | Copy config + chmod |
+| `scripts/bootstrap-azure.sh` | Create Azure resources |
+| `scripts/cloudshell-deploy.sh` | Deploy app from Cloud Shell |
+| `infra/adx-schema.kql` | ADX database tables |

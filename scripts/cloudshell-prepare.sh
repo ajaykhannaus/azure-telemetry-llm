@@ -4,22 +4,24 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-echo "=== Cloud Shell bootstrap helper ==="
+echo "=== Azure Cloud Shell — full setup (no Mac) ==="
 echo ""
 
 if [[ ! -f azure/bootstrap-azure.env ]]; then
-  echo "Copying azure/bootstrap-azure.sandbox.env → azure/bootstrap-azure.env"
   cp azure/bootstrap-azure.sandbox.env azure/bootstrap-azure.env
-else
-  echo "Using existing azure/bootstrap-azure.env"
+  echo "Created azure/bootstrap-azure.env from sandbox template"
 fi
 
 chmod +x scripts/bootstrap-azure.sh infra/bootstrap.sh infra/adx-data-connection.sh
+chmod +x scripts/cloudshell-prepare.sh scripts/cloudshell-deploy.sh scripts/deploy-local.sh
 
 echo ""
-echo "Next commands (run one at a time):"
+echo "Run these commands ONE AT A TIME:"
 echo ""
+echo "  az account set --subscription \"216d62c8-0f0c-4e5c-9cda-cc553e7ab186\""
 echo "  ./scripts/bootstrap-azure.sh --preflight"
 echo "  ./scripts/bootstrap-azure.sh"
-echo "  cat .env.azure"
+echo "  ./scripts/cloudshell-deploy.sh"
+echo ""
+echo "After bootstrap, apply infra/adx-schema.kql in ADX Portal (see docs/AZURE_CLOUDSHELL_SETUP.md)"
 echo ""

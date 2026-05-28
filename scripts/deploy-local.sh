@@ -45,6 +45,13 @@ load_env() {
 }
 
 cmd_login() {
+  if [[ "${SKIP_AZ_LOGIN:-false}" == "true" ]]; then
+    if [[ -n "${AZURE_SUBSCRIPTION_ID:-}" ]]; then
+      az account set --subscription "$AZURE_SUBSCRIPTION_ID" 2>/dev/null || true
+    fi
+    log "Using Cloud Shell session (SKIP_AZ_LOGIN=true)"
+    return 0
+  fi
   # shellcheck source=/dev/null
   source "$ROOT/scripts/azure-local-login.sh"
 }
