@@ -190,16 +190,11 @@ if [[ "$SKIP_EVENTHUB" == "false" ]]; then
   if az eventhubs eventhub show --name "$EH_NAME" --namespace-name "$EH_NS" --resource-group "$RG" >/dev/null 2>&1; then
     echo "  reuse hub $EH_NAME"
   else
-    # Newer Azure REST API requires `cleanupPolicy` whenever
-    # `retentionDescription` is set. Passing --retention-time alone triggers:
-    #   RequestJsonDeserializationFailure: Required property 'cleanupPolicy'
-    #   not found in JSON. Path 'properties.retentionDescription'.
     az eventhubs eventhub create \
       --name "$EH_NAME" \
       --namespace-name "$EH_NS" \
       --resource-group "$RG" \
       --partition-count 4 \
-      --cleanup-policy Delete \
       --retention-time 24 \
       --output none
   fi
@@ -215,57 +210,85 @@ fi
 
 echo "[5/5] service principal"
 SP_NAME="sp-telemetry-cicd-${RG}"
+SP_JSON=""
+SP_CLIENT_ID=""
+SP_CLIENT_SECRET=""
+
+# Helper: build the AZURE_CREDENTIALS JSON blob from raw SP fields.
+# --sdk-auth is deprecated; we construct the same shape manually.
+_build_sp_json() {
+  local client_id="$1" client_secret="$2"
+  python3 - "$client_id" "$client_secret" "$SUB_ID" "$TENANT_ID" <<'PYEOF'
+import json, sys
+cid, csec, sub, ten = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+print(json.dumps({
+  "clientId":                         cid,
+  "clientSecret":                     csec,
+  "subscriptionId":                   sub,
+  "tenantId":                         ten,
+  "activeDirectoryEndpointUrl":       "https://login.microsoftonline.com",
+  "resourceManagerEndpointUrl":       "https://management.azure.com/",
+  "activeDirectoryGraphResourceId":   "https://graph.windows.net/",
+  "sqlManagementEndpointUrl":         "https://management.core.windows.net:8443/",
+  "galleryEndpointUrl":               "https://gallery.azure.com/",
+  "managementEndpointUrl":            "https://management.core.windows.net/",
+}, indent=2))
+PYEOF
+}
 
 EXISTING_APP_ID=$(az ad sp list --display-name "$SP_NAME" --query "[0].appId" -o tsv 2>/dev/null || true)
+
 if [[ -n "$EXISTING_APP_ID" ]]; then
   echo "  reset credentials for $SP_NAME"
-  SP_JSON=$(az ad sp credential reset \
+  RAW=$(az ad sp credential reset \
     --id "$EXISTING_APP_ID" \
     --display-name "$(date -u +%Y%m%d-%H%M%S)" \
-    --query '{clientId:appId,clientSecret:password,tenantId:tenant,subscriptionId:`'$SUB_ID'`}' \
-    --output json)
-  SP_JSON=$(python3 -c "
-import json, sys
-d = json.loads(sys.argv[1])
-print(json.dumps({
-  'clientId':       d['clientId'],
-  'clientSecret':   d['clientSecret'],
-  'subscriptionId': '$SUB_ID',
-  'tenantId':       '$TENANT_ID',
-  'activeDirectoryEndpointUrl':       'https://login.microsoftonline.com',
-  'resourceManagerEndpointUrl':       'https://management.azure.com/',
-  'activeDirectoryGraphResourceId':   'https://graph.windows.net/',
-  'sqlManagementEndpointUrl':         'https://management.core.windows.net:8443/',
-  'galleryEndpointUrl':               'https://gallery.azure.com/',
-  'managementEndpointUrl':            'https://management.core.windows.net/',
-}, indent=2))" "$SP_JSON")
+    --output json 2>&1) && {
+      SP_CLIENT_ID=$(python3 -c "import sys,json; print(json.load(sys.stdin)['appId'])"   <<<"$RAW")
+      SP_CLIENT_SECRET=$(python3 -c "import sys,json; print(json.load(sys.stdin)['password'])" <<<"$RAW")
+      SP_JSON=$(_build_sp_json "$SP_CLIENT_ID" "$SP_CLIENT_SECRET")
+      echo "  $SP_NAME"
+    } || {
+      echo "  WARNING: could not reset SP credentials (insufficient Azure AD privileges)."
+      echo "  Ask an Azure AD admin to run: az ad sp credential reset --id $EXISTING_APP_ID"
+    }
 else
-  SP_JSON=$(az ad sp create-for-rbac \
+  # az ad sp create-for-rbac requires Application Administrator (or higher) in
+  # Azure AD. If the caller lacks that role the command fails with
+  # "Insufficient privileges". We catch that and continue so the rest of the
+  # infra (ACR, CAE, Event Hub) is still usable.
+  RAW=$(az ad sp create-for-rbac \
     --name "$SP_NAME" \
     --role Reader \
     --scopes "/subscriptions/${SUB_ID}/resourceGroups/${RG}" \
-    --sdk-auth \
-    --output json)
+    --output json 2>&1) && {
+      SP_CLIENT_ID=$(python3 -c "import sys,json; print(json.load(sys.stdin)['appId'])"   <<<"$RAW")
+      SP_CLIENT_SECRET=$(python3 -c "import sys,json; print(json.load(sys.stdin)['password'])" <<<"$RAW")
+      SP_JSON=$(_build_sp_json "$SP_CLIENT_ID" "$SP_CLIENT_SECRET")
+      echo "  $SP_NAME"
+    } || {
+      echo "  WARNING: could not create service principal (insufficient Azure AD privileges)."
+      echo "  To create it manually, an Azure AD admin must run:"
+      echo "    az ad sp create-for-rbac --name $SP_NAME --role Reader \\"
+      echo "      --scopes /subscriptions/${SUB_ID}/resourceGroups/${RG}"
+      echo "  Then assign AcrPush and 'Container Apps Contributor' to the new SP."
+    }
 fi
 
-SP_APP_ID=$(python3 -c "import sys,json; print(json.load(sys.stdin)['clientId'])" <<<"$SP_JSON")
+# Assign additional roles only when we have a valid SP.
+if [[ -n "$SP_CLIENT_ID" ]]; then
+  az role assignment create \
+    --assignee "$SP_CLIENT_ID" \
+    --role AcrPush \
+    --scope "/subscriptions/${SUB_ID}/resourceGroups/${RG}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}" \
+    --output none 2>/dev/null || true
 
-az role assignment create \
-  --assignee "$SP_APP_ID" \
-  --role AcrPush \
-  --scope "/subscriptions/${SUB_ID}/resourceGroups/${RG}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}" \
-  --output none 2>/dev/null || true
-
-az role assignment create \
-  --assignee "$SP_APP_ID" \
-  --role "Container Apps Contributor" \
-  --scope "/subscriptions/${SUB_ID}/resourceGroups/${RG}" \
-  --output none 2>/dev/null || true
-
-echo "  $SP_NAME"
-
-SP_CLIENT_ID=$(python3 -c "import sys,json; print(json.load(sys.stdin)['clientId'])" <<<"$SP_JSON")
-SP_CLIENT_SECRET=$(python3 -c "import sys,json; print(json.load(sys.stdin)['clientSecret'])" <<<"$SP_JSON")
+  az role assignment create \
+    --assignee "$SP_CLIENT_ID" \
+    --role "Container Apps Contributor" \
+    --scope "/subscriptions/${SUB_ID}/resourceGroups/${RG}" \
+    --output none 2>/dev/null || true
+fi
 
 if [[ -n "$WRITE_ENV" ]]; then
   mkdir -p "$(dirname "$WRITE_ENV")"
@@ -291,10 +314,15 @@ fi
 
 if [[ "$SKIP_PRINT_SECRETS" != "true" ]]; then
   echo ""
-  echo "GitHub secrets"
-  echo "  AZURE_CREDENTIALS"
-  echo "$SP_JSON" | sed 's/^/    /'
-  echo ""
+  if [[ -n "$SP_JSON" ]]; then
+    echo "GitHub secrets"
+    echo "  AZURE_CREDENTIALS"
+    echo "$SP_JSON" | sed 's/^/    /'
+    echo ""
+  else
+    echo "GitHub secrets (AZURE_CREDENTIALS skipped — SP not created)"
+    echo ""
+  fi
   echo "  AZURE_SUBSCRIPTION_ID=$SUB_ID"
   echo "  AZURE_TENANT_ID=$TENANT_ID"
   echo "  AZURE_RESOURCE_GROUP=$RG"
