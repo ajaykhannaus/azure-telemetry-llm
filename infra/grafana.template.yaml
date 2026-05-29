@@ -30,6 +30,8 @@ properties:
           cpu: 0.5
           memory: 1Gi
         env:
+          - name: GF_SECURITY_ADMIN_USER
+            value: admin
           - name: GF_SECURITY_ADMIN_PASSWORD
             secretRef: grafana-admin-password
           - name: GF_AUTH_ANONYMOUS_ENABLED

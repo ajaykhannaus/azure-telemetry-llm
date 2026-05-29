@@ -276,9 +276,10 @@ fi
 deploy_grafana() {
   local grafana_app="${GRAFANA_APP_NAME:-grafana-telemetry-dev}"
   local grafana_image="$ACR_LOGIN_SERVER/grafana:latest"
-  local admin_pass="${GRAFANA_ADMIN_PASSWORD:-$(openssl rand -base64 16)}"
+  # Default credentials: admin / admin. Override with GRAFANA_ADMIN_PASSWORD.
+  local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
 
-  # Resolve the Prometheus scraper URL (internal Container App FQDN).
+  # Resolve the Prometheus scraper URL from Container Apps (external FQDN).
   local prom_fqdn
   prom_fqdn=$(az containerapp show \
     --name "$PROM_APP_NAME" \
@@ -347,6 +348,7 @@ deploy_grafana() {
   {
     echo "GRAFANA_APP_NAME=$grafana_app"
     echo "GRAFANA_URL=${GRAFANA_URL:-}"
+    echo "GRAFANA_ADMIN_USER=admin"
     echo "GRAFANA_ADMIN_PASSWORD=${admin_pass}"
   } >> "$WRITE_ENV_FILE"
 
@@ -359,7 +361,7 @@ deploy_grafana
 echo ""
 echo "Done"
 echo "  env    : $WRITE_ENV_FILE"
-echo "  grafana: ${GRAFANA_URL:-n/a}"
+echo "  grafana: ${GRAFANA_URL:-n/a}  (login: admin / ${GRAFANA_ADMIN_PASSWORD:-admin})"
 echo "  adx    : ${ADX_CLUSTER_URI:-n/a} / ${ADX_DATABASE}"
 echo ""
 echo "  cp $(basename "$WRITE_ENV_FILE") .env"
