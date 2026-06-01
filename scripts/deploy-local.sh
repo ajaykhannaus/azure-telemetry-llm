@@ -22,13 +22,13 @@ ENV_FILE="${ENV_FILE:-$ROOT/.env}"
 # ── Dev resource names (override any in .env) ───────────────────────────────
 export AZURE_RESOURCE_GROUP="${AZURE_RESOURCE_GROUP:-rg-ai-telemetry-dev}"
 export AZURE_LOCATION="${AZURE_LOCATION:-eastus}"
-export ACR_NAME="${ACR_NAME:-acrtelemetrydev}"
+export ACR_NAME="${ACR_NAME:-acrtelemetrydevaj}"
 export CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
 export APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
 export PROM_APP_NAME="${PROM_APP_NAME:-prometheus-scraper-dev}"
 export GRAFANA_NAME="${GRAFANA_NAME:-grafana-ai-telemetry-dev}"
 export PROM_WS="${PROM_WS:-telemetry-prometheus-dev}"
-export EH_NS="${EH_NS:-evhns-telemetry-dev}"
+export EH_NS="${EH_NS:-evhns-telemetry-devaj}"
 export EH_NAME="${EVENTHUB_NAME:-ai-telemetry-events}"
 
 log() { echo "[deploy-local] $*"; }

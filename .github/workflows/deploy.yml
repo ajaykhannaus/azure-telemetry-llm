@@ -7,8 +7,8 @@ name: Build and Deploy to Azure
 #   AZURE_TENANT_ID          e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
 #   AZURE_RESOURCE_GROUP     e.g. rg-ai-telemetry-dev
 #   AZURE_LOCATION           e.g. eastus
-#   ACR_LOGIN_SERVER         e.g. acrtelemetrydev.azurecr.io
-#   AZURE_ACR_NAME           short ACR name only  e.g. acrtelemetrydev
+#   ACR_LOGIN_SERVER         e.g. acrtelemetrydevaj.azurecr.io
+#   AZURE_ACR_NAME           short ACR name only  e.g. acrtelemetrydevaj
 #   AZURE_CONTAINER_APP_NAME e.g. ai-telemetry-runner-dev
 #   AZURE_CAE_NAME           Container Apps Environment  e.g. cae-telemetry-dev
 #

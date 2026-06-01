@@ -66,13 +66,13 @@ ADX_ENV="${ADX_ENV:-dev}"
 [[ "$CLI_PREFLIGHT" == "true" ]] && PREFLIGHT=true
 [[ "$SKIP_BUILD" == "true" ]] && BUILD_IMAGES=false
 
-ACR_NAME="${ACR_NAME:-acrtelemetrydev}"
+ACR_NAME="${ACR_NAME:-acrtelemetrydevaj}"
 CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
 APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
 PROM_APP_NAME="${PROM_APP_NAME:-prometheus-scraper-dev}"
 GRAFANA_NAME="${GRAFANA_NAME:-grafana-telemetry-dev}"
 PROM_WS="${PROM_WS:-telemetry-prometheus-dev}"
-EH_NS="${EH_NS:-evhns-telemetry-dev}"
+EH_NS="${EH_NS:-evhns-telemetry-devaj}"
 EH_NAME="${EVENTHUB_NAME:-ai-telemetry-events}"
 AZURE_LOCATION="${AZURE_LOCATION:-eastus}"
 

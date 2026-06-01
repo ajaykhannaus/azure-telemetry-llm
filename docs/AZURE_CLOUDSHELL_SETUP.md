@@ -99,15 +99,9 @@ chmod +x scripts/cloudshell-prepare.sh && ./scripts/cloudshell-prepare.sh
 
 ---
 
-### Command 10 (only if name conflict)
+### Command 10 (only if ADX name conflict)
 
-```bash
-sed -i 's/acrtelemetrydev/acrtelemetrydevaj/g' azure/bootstrap-azure.env
-```
-
-```bash
-sed -i 's/evhns-telemetry-dev/evhns-telemetry-devaj/g' azure/bootstrap-azure.env
-```
+Defaults are already `acrtelemetrydevaj` and `evhns-telemetry-devaj`. If ADX cluster name is taken:
 
 ```bash
 sed -i 's/adxtelemetrydev/adxtelemetrydevaj/g' azure/bootstrap-azure.env

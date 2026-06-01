@@ -26,10 +26,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # ── Dev resource names ────────────────────────────────────────────────────────
 RG="${AZURE_RESOURCE_GROUP:-rg-ai-telemetry-dev}"
 LOCATION="${AZURE_LOCATION:-eastus}"
-ACR_NAME="${ACR_NAME:-acrtelemetrydev}"
+ACR_NAME="${ACR_NAME:-acrtelemetrydevaj}"
 CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
 APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
-EH_NS="${EH_NS:-evhns-telemetry-dev}"
+EH_NS="${EH_NS:-evhns-telemetry-devaj}"
 EH_NAME="${EVENTHUB_NAME:-ai-telemetry-events}"
 USE_EXISTING_RG="${USE_EXISTING_RG:-false}"
 

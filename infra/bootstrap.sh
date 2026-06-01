@@ -3,10 +3,10 @@ set -euo pipefail
 
 RG="rg-ai-telemetry-dev"
 LOCATION="eastus"
-ACR_NAME="acrtelemetrydev"
+ACR_NAME="acrtelemetrydevaj"
 CAE_NAME="cae-telemetry-dev"
 APP_NAME="ai-telemetry-runner-dev"
-EH_NS="evhns-telemetry-dev"
+EH_NS="evhns-telemetry-devaj"
 EH_NAME="ai-telemetry-events"
 SKIP_EVENTHUB=false
 PREFLIGHT=false
@@ -75,7 +75,7 @@ SUB_ID=$(az account show --query id -o tsv)
 SUB_NAME=$(az account show --query name -o tsv)
 TENANT_ID=$(az account show --query tenantId -o tsv)
 
-[[ -z "$EH_NS" && "$SKIP_EVENTHUB" == "false" ]] && EH_NS="evhns-telemetry-dev"
+[[ -z "$EH_NS" && "$SKIP_EVENTHUB" == "false" ]] && EH_NS="evhns-telemetry-devaj"
 
 echo ""
 echo "Bootstrap"
