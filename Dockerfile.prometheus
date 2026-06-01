@@ -16,7 +16,7 @@ COPY azure/prometheus-entrypoint.sh /prometheus-entrypoint.sh
 
 USER root
 RUN chmod +x /prometheus-entrypoint.sh \
- && chown nobody:nogroup /etc/prometheus/prometheus.yml /etc/prometheus/rules.yml
+ && chown nobody:nobody /etc/prometheus/prometheus.yml /etc/prometheus/rules.yml
 
 USER nobody
 
