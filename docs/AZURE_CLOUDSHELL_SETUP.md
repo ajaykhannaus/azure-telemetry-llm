@@ -151,6 +151,30 @@ chmod +x scripts/cloudshell-deploy.sh
 
 **Success:** `Done — app is running in Azure.`
 
+**Typical runtime:** 8–15 min on first deploy (Container App create can sit on `Running ..` for several minutes with no new lines — that is normal).
+
+---
+
+### Command 14b — optional second Cloud Shell tab (status only)
+
+Open a **second** Cloud Shell tab while command 14 is still running. **Read-only checks only** — do **not** run deploy or Grafana commands here (that can conflict with the first tab).
+
+```bash
+cd observability
+
+# Telemetry runner
+az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg \
+  --query "{name:name,status:properties.runningStatus,replicas:properties.template.scale}" -o json
+
+# Grafana
+az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg \
+  --query "{name:name,status:properties.runningStatus,fqdn:properties.configuration.ingress.fqdn}" -o json
+```
+
+**While deploy is in progress:** status may be `Processing` or `Running` — wait for command 14 to finish in the first tab.
+
+**If one step has no new output for 20+ min:** note the last line in tab 1, run the checks above in tab 2, then decide whether to wait or `Ctrl+C` and re-run command 14.
+
 ---
 
 ### Command 15 — optional: save secrets
@@ -203,6 +227,7 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 | `.env.azure not found` | Run command 11 first |
 | Deploy fails on Event Hub | Re-run command 11 |
 | `SecretRef 'eventhub-namespace' not found` | `git pull` then re-run command 14 |
+| Deploy seems slow (10–15 min) | Normal on first create; use command 14b in a second tab |
 | Grafana **404** / app stopped | Commands 16–18 below |
 
 ---
