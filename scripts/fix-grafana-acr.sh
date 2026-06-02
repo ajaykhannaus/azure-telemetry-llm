@@ -7,15 +7,16 @@ CONFIG="${BOOTSTRAP_CONFIG:-$ROOT/azure/bootstrap-azure.env}"
 USE_MANAGED_IDENTITY=false
 SKIP_PULL=false
 FORCE_UNSTICK=false
+RECREATE_APP=false
 
 usage() {
   cat <<EOF
-Usage: $0 [--try-managed-identity] [--force] [--no-git-pull]
+Usage: $0 [--force] [--recreate] [--no-git-pull]
 
-  Fixes ACR pull for Grafana using ACR admin credentials (default):
-    remove broken registry config → set secrets → bind admin auth → new revision
+  Fixes ACR pull for Grafana using ACR admin credentials (default).
 
-  --force   Scale app to 0 then 1 first (use when stuck on "Waiting ... 60/60")
+  --force     Scale to 0/1 first (stuck InProgress / Failed)
+  --recreate  Delete and redeploy the Container App (last resort)
   Config: azure/bootstrap-azure.env
 EOF
 }
@@ -24,6 +25,7 @@ for arg in "$@"; do
   case "$arg" in
     --try-managed-identity) USE_MANAGED_IDENTITY=true ;;
     --admin-only|--force) FORCE_UNSTICK=true ;;
+    --recreate) RECREATE_APP=true; FORCE_UNSTICK=true ;;
     --no-git-pull) SKIP_PULL=true ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $arg" >&2; usage >&2; exit 1 ;;
@@ -200,9 +202,29 @@ wait_for_grafana_health() {
   return 1
 }
 
+recreate_grafana_via_bootstrap() {
+  log "Recreate: delete + redeploy $GRAFANA_APP_NAME (ACR admin, no image rebuild) ..."
+  chmod +x "$ROOT/scripts/bootstrap-azure.sh"
+  GRAFANA_RECREATE=true \
+  GRAFANA_ACR_USE_ADMIN=true \
+  FORCE_IMAGE_BUILD=false \
+  BOOTSTRAP_CONFIG="$CONFIG" \
+  WRITE_ENV_FILE="${WRITE_ENV_FILE:-.env.azure}" \
+  "$ROOT/scripts/bootstrap-azure.sh" --grafana-only --no-build
+}
+
 # ── main ─────────────────────────────────────────────────────────────────────
 
 log "Grafana ACR repair: $GRAFANA_APP_NAME  ACR: $ACR_LOGIN_SERVER"
+log "Repo: $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+if [[ "$RECREATE_APP" == "true" ]]; then
+  recreate_grafana_via_bootstrap
+  FQDN=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+  [[ -n "$FQDN" ]] && wait_for_grafana_health "$FQDN"
+  exit $?
+fi
 
 if ! az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
   log "ERROR: app missing — run ./scripts/fix-grafana.sh first"
@@ -219,8 +241,14 @@ az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURC
   -o json
 show_registry_config
 
+PROV_STATE=$(containerapp_provisioning_state)
+if [[ "$PROV_STATE" == "Failed" || "$PROV_STATE" == "InProgress" ]]; then
+  log "provisioningState=$PROV_STATE — auto unstick"
+  FORCE_UNSTICK=true
+fi
+
 [[ "$FORCE_UNSTICK" == "true" ]] && unstick_containerapp
-brief_wait_for_idle
+[[ "$FORCE_UNSTICK" != "true" ]] && brief_wait_for_idle
 
 if [[ "$USE_MANAGED_IDENTITY" == "true" ]]; then
   log "WARN: --try-managed-identity ignored in fast path; using ACR admin (sandbox)"
@@ -232,7 +260,7 @@ force_grafana_image_pull
 FQDN=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
   --query "properties.configuration.ingress.fqdn" -o tsv)
 wait_for_grafana_health "$FQDN" || {
-  log "Not healthy yet. Try: ./scripts/fix-grafana-acr.sh --force"
+  log "Not healthy. Last resort: ./scripts/fix-grafana-acr.sh --recreate"
   az containerapp replica list -n "$GRAFANA_APP_NAME" -g "$AZURE_RESOURCE_GROUP" -o table 2>/dev/null || true
   exit 1
 }

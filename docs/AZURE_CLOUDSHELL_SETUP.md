@@ -317,7 +317,17 @@ chmod +x scripts/fix-grafana-acr.sh
 ./scripts/fix-grafana-acr.sh --force
 ```
 
-**Stuck on `Waiting ... 60/60`?** Ctrl+C, then run with `--force` (scales to 0/1 to cancel stuck Azure operations). Normal run waits at most **~2 min**, not 10.
+**Stuck on `Waiting ... 60/60`?** You are on an old script — run `git pull` first (need commit `d48e021+`). Then:
+
+```bash
+./scripts/fix-grafana-acr.sh --force
+```
+
+**`provisioningState=Failed`?** Same command (`--force` auto-runs on Failed). If still broken:
+
+```bash
+./scripts/fix-grafana-acr.sh --recreate
+```
 
 Optional — try managed identity first (usually fails in sandbox without AcrPull permission):
 
