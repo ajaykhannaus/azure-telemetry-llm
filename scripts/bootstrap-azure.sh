@@ -8,17 +8,19 @@ CLI_PREFLIGHT=false
 
 usage() {
   cat <<EOF
-Usage: $0 [--preflight] [--no-build]
+Usage: $0 [--preflight] [--no-build] [--grafana-only]
 
   Config: azure/bootstrap-azure.env
   Output: .env.azure (copy to .env)
 EOF
 }
 
+GRAFANA_ONLY=false
 for arg in "$@"; do
   case "$arg" in
     --preflight) CLI_PREFLIGHT=true ;;
     --no-build)  SKIP_BUILD=true ;;
+    --grafana-only) GRAFANA_ONLY=true ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $arg" >&2; usage >&2; exit 1 ;;
   esac
@@ -112,6 +114,134 @@ echo ""
 
 [[ "$USE_EXISTING_RG" == "true" ]] && \
   AZURE_LOCATION=$(az group show --name "$AZURE_RESOURCE_GROUP" --query location -o tsv)
+
+ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query loginServer -o tsv 2>/dev/null || true)}"
+
+containerapp_exists() {
+  az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1
+}
+
+containerapp_running() {
+  [[ "$(az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.runningStatus" -o tsv 2>/dev/null || echo "Missing")" == "Running" ]]
+}
+
+acr_image_exists() {
+  az acr repository show --name "$ACR_NAME" --image "$1" >/dev/null 2>&1
+}
+
+build_image_if_missing() {
+  local tag=$1 dockerfile=$2 app_name=${3:-}
+  if [[ -n "$app_name" ]] && containerapp_exists "$app_name" \
+      && containerapp_running "$app_name" \
+      && [[ "${FORCE_IMAGE_BUILD:-false}" != "true" ]]; then
+    log "reuse $app_name — skipping $tag build"
+    return 0
+  fi
+  if [[ "${FORCE_IMAGE_BUILD:-false}" != "true" ]] && acr_image_exists "$tag"; then
+    log "reuse $ACR_NAME/$tag — skipping build"
+    return 0
+  fi
+  log "building $ACR_NAME/$tag"
+  az acr build --registry "$ACR_NAME" --platform linux/amd64 \
+    --image "$tag" -f "$dockerfile" "$ROOT"
+}
+
+write_grafana_env() {
+  local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
+  {
+    echo "GRAFANA_APP_NAME=$GRAFANA_APP_NAME"
+    echo "GRAFANA_URL=${GRAFANA_URL:-}"
+    echo "GRAFANA_ADMIN_USER=admin"
+    echo "GRAFANA_ADMIN_PASSWORD=${admin_pass}"
+  } >> "$WRITE_ENV_FILE"
+}
+
+deploy_grafana() {
+  local grafana_image="$ACR_LOGIN_SERVER/grafana:latest"
+  local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
+
+  if containerapp_exists "$GRAFANA_APP_NAME" \
+      && containerapp_running "$GRAFANA_APP_NAME" \
+      && [[ "${FORCE_CONTAINER_DEPLOY:-false}" != "true" ]]; then
+    log "grafana: reuse $GRAFANA_APP_NAME — already running"
+    GRAFANA_URL=$(az containerapp show \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+    [[ -n "$GRAFANA_URL" ]] && GRAFANA_URL="https://${GRAFANA_URL}"
+    write_grafana_env
+    return 0
+  fi
+
+  local prom_fqdn prom_url env_id rendered
+  prom_fqdn=$(az containerapp show \
+    --name "$PROM_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+  prom_url="http://prometheus:9090"
+  [[ -n "$prom_fqdn" ]] && prom_url="https://${prom_fqdn}"
+  env_id=$(az containerapp env show \
+    --name "$CAE_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query id -o tsv)
+  rendered="$ROOT/infra/grafana.rendered.yaml"
+  sed \
+    -e "s|__LOCATION__|${AZURE_LOCATION}|g" \
+    -e "s|__MANAGED_ENV_ID__|${env_id}|g" \
+    -e "s|__ACR_LOGIN_SERVER__|${ACR_LOGIN_SERVER}|g" \
+    -e "s|__IMAGE__|${grafana_image}|g" \
+    -e "s|__PROMETHEUS_URL__|${prom_url}|g" \
+    -e "s|__GRAFANA_ADMIN_PASSWORD__|${admin_pass}|g" \
+    "$ROOT/infra/grafana.template.yaml" > "$rendered"
+
+  if containerapp_exists "$GRAFANA_APP_NAME"; then
+    log "grafana: update $GRAFANA_APP_NAME (not running or forced)"
+    az containerapp update \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --yaml "$rendered" --output none
+  else
+    log "grafana: create $GRAFANA_APP_NAME"
+    az containerapp create \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --yaml "$rendered" --output none
+    local principal_id acr_id
+    principal_id=$(az containerapp show \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query identity.principalId -o tsv)
+    acr_id=$(az acr show --name "$ACR_NAME" --query id -o tsv)
+    az role assignment create \
+      --assignee "$principal_id" \
+      --role AcrPull \
+      --scope "$acr_id" --output none 2>/dev/null || true
+    az containerapp update \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --yaml "$rendered" --output none
+  fi
+
+  GRAFANA_URL=$(az containerapp show \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+  [[ -n "$GRAFANA_URL" ]] && GRAFANA_URL="https://${GRAFANA_URL}"
+  write_grafana_env
+  rm -f "$rendered"
+}
+
+if [[ "$GRAFANA_ONLY" == "true" ]]; then
+  if [[ "$BUILD_IMAGES" == "true" ]]; then
+    build_image_if_missing "grafana:latest" "$ROOT/Dockerfile.grafana" "$GRAFANA_APP_NAME"
+  fi
+  log "self-hosted grafana (grafana-only)"
+  deploy_grafana
+  echo ""
+  echo "Grafana: ${GRAFANA_URL:-n/a}  (login: admin / ${GRAFANA_ADMIN_PASSWORD:-admin})"
+  exit 0
+fi
 
 BOOTSTRAP_ARGS=(
   --resource-group "$AZURE_RESOURCE_GROUP"
@@ -285,118 +415,11 @@ fi
   echo "EVAL_ENABLED=false"
 } >> "$WRITE_ENV_FILE"
 
-acr_image_exists() {
-  az acr repository show --name "$ACR_NAME" --image "$1" >/dev/null 2>&1
-}
-
-containerapp_exists() {
-  az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1
-}
-
-build_image_if_missing() {
-  local tag=$1 dockerfile=$2 app_name=${3:-}
-  if [[ -n "$app_name" ]] && containerapp_exists "$app_name"; then
-    log "reuse $app_name — skipping $tag build"
-    return 0
-  fi
-  if [[ "${FORCE_IMAGE_BUILD:-false}" != "true" ]] && acr_image_exists "$tag"; then
-    log "reuse $ACR_NAME/$tag — skipping build"
-    return 0
-  fi
-  log "building $ACR_NAME/$tag"
-  az acr build --registry "$ACR_NAME" --platform linux/amd64 \
-    --image "$tag" -f "$dockerfile" "$ROOT"
-}
-
 if [[ "$BUILD_IMAGES" == "true" ]]; then
   build_image_if_missing "ai-telemetry-runner:latest" "$ROOT/Dockerfile.runner" "$APP_NAME"
   build_image_if_missing "prometheus-scraper:latest" "$ROOT/Dockerfile.prometheus" "$PROM_APP_NAME"
   build_image_if_missing "grafana:latest" "$ROOT/Dockerfile.grafana" "$GRAFANA_APP_NAME"
 fi
-
-# ── Self-hosted Grafana Container App ────────────────────────────────────────
-write_grafana_env() {
-  local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
-  {
-    echo "GRAFANA_APP_NAME=$GRAFANA_APP_NAME"
-    echo "GRAFANA_URL=${GRAFANA_URL:-}"
-    echo "GRAFANA_ADMIN_USER=admin"
-    echo "GRAFANA_ADMIN_PASSWORD=${admin_pass}"
-  } >> "$WRITE_ENV_FILE"
-}
-
-deploy_grafana() {
-  local grafana_image="$ACR_LOGIN_SERVER/grafana:latest"
-  local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
-
-  if containerapp_exists "$GRAFANA_APP_NAME"; then
-    log "grafana: reuse $GRAFANA_APP_NAME — skipping deploy"
-    GRAFANA_URL=$(az containerapp show \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-    [[ -n "$GRAFANA_URL" ]] && GRAFANA_URL="https://${GRAFANA_URL}"
-    write_grafana_env
-    return 0
-  fi
-
-  local prom_fqdn
-  prom_fqdn=$(az containerapp show \
-    --name "$PROM_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-
-  local prom_url="http://prometheus:9090"
-  [[ -n "$prom_fqdn" ]] && prom_url="https://${prom_fqdn}"
-
-  local env_id
-  env_id=$(az containerapp env show \
-    --name "$CAE_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query id -o tsv)
-
-  local rendered="$ROOT/infra/grafana.rendered.yaml"
-  sed \
-    -e "s|__LOCATION__|${AZURE_LOCATION}|g" \
-    -e "s|__MANAGED_ENV_ID__|${env_id}|g" \
-    -e "s|__ACR_LOGIN_SERVER__|${ACR_LOGIN_SERVER}|g" \
-    -e "s|__IMAGE__|${grafana_image}|g" \
-    -e "s|__PROMETHEUS_URL__|${prom_url}|g" \
-    -e "s|__GRAFANA_ADMIN_PASSWORD__|${admin_pass}|g" \
-    "$ROOT/infra/grafana.template.yaml" > "$rendered"
-
-  log "grafana: create $GRAFANA_APP_NAME"
-  az containerapp create \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --yaml "$rendered" --output none
-
-  local principal_id
-  principal_id=$(az containerapp show \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query identity.principalId -o tsv)
-  local acr_id
-  acr_id=$(az acr show --name "$ACR_NAME" --query id -o tsv)
-  az role assignment create \
-    --assignee "$principal_id" \
-    --role AcrPull \
-    --scope "$acr_id" --output none 2>/dev/null || true
-  az containerapp update \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --yaml "$rendered" --output none
-
-  GRAFANA_URL=$(az containerapp show \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-  [[ -n "$GRAFANA_URL" ]] && GRAFANA_URL="https://${GRAFANA_URL}"
-
-  write_grafana_env
-
-  rm -f "$rendered"
-}
 
 log "self-hosted grafana"
 deploy_grafana

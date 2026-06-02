@@ -21,7 +21,7 @@ log "Deploying from Azure Cloud Shell (no Mac required)"
 log "Using $ENV_FILE"
 
 "$ROOT/scripts/deploy-local.sh" deploy
-"$ROOT/scripts/deploy-local.sh" grafana
+"$ROOT/scripts/bootstrap-azure.sh" --grafana-only
 "$ROOT/scripts/deploy-local.sh" verify
 
 echo ""
