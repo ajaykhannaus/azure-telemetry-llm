@@ -22,9 +22,12 @@ Copy this block when you open a new Cloud Shell session:
 
 ```bash
 az account set --subscription "216d62c8-0f0c-4e5c-9cda-cc553e7ab186"
-cd ~/observability
+cd ~/observability   # spelling: observability (with v)
 git pull
 chmod +x scripts/*.sh
+
+# quick sanity check before deploy
+ls -la .env.azure || echo "Run bootstrap first — see Missing .env.azure section"
 ```
 
 Optional — load names used below:
@@ -111,6 +114,8 @@ Run **`git pull` first**, then pick one:
 
 | Symptom | Command |
 |---|---|
+| **Missing `.env.azure`** | See [Missing `.env.azure`](#missing-envazure) below |
+| Wrong repo folder (`obserability` typo) | `cd ~/observability` — note the **v** |
 | Grafana 404 / no healthy replicas | `./scripts/fix-grafana.sh` |
 | Grafana ACR 401 / ImagePullBackOff | `./scripts/fix-grafana-acr.sh --force` |
 | Grafana still broken after ACR fix | `./scripts/fix-grafana-acr.sh --recreate` |
@@ -148,14 +153,89 @@ Platform logs (stdout) → **Log Analytics** in Azure Portal → Container Apps 
 
 ## Environment / secrets
 
+### Check `.env.azure` exists
+
+```bash
+pwd
+# must end with: .../observability  (not obserability)
+
+ls -la .env.azure
+cat .env.azure | head -15
+```
+
+### Missing `.env.azure`
+
+Deploy scripts fail with:
+
+```text
+ERROR: Missing /home/.../observability/.env.azure — run ./scripts/bootstrap-azure.sh first
+```
+
+**Cause:** Bootstrap was not run yet, or you are in the wrong clone/folder (common typo: `~/obserability` vs `~/observability`).
+
+**Fix — use the correct directory:**
+
+```bash
+az account set --subscription "216d62c8-0f0c-4e5c-9cda-cc553e7ab186"
+cd ~/observability
+pwd
+```
+
+If `cd ~/observability` fails, clone again:
+
+```bash
+git clone https://github.com/ajaykhannaus/observability.git
+cd observability
+git pull
+chmod +x scripts/*.sh
+```
+
+**Fix — create config (first time only):**
+
+```bash
+cp azure/bootstrap-azure.sandbox.env azure/bootstrap-azure.env
+./scripts/cloudshell-prepare.sh
+```
+
+**Fix — generate `.env.azure`:**
+
+```bash
+./scripts/bootstrap-azure.sh --preflight
+./scripts/bootstrap-azure.sh
+```
+
+Bootstrap writes `.env.azure` (Event Hub connection string, resource group, ACR, etc.). Safe to re-run if infra already exists — it reuses resources and recreates the file.
+
+**Confirm, then deploy:**
+
+```bash
+ls -la .env.azure
+./scripts/cloudshell-deploy.sh
+```
+
+| Step | Command | Creates `.env.azure`? |
+|---|---|---|
+| First time (or file missing) | `./scripts/bootstrap-azure.sh` | **Yes** |
+| After that | `./scripts/cloudshell-deploy.sh` | No — needs existing file |
+
+If bootstrap ran in a **different** Cloud Shell session or folder, `.env.azure` is only in that clone — `cd` there or re-run bootstrap in `~/observability`.
+
+### View secrets
+
 ```bash
 cat .env.azure
 ```
 
-Re-create from bootstrap (does not redeploy apps):
+### Re-check bootstrap only (no full redeploy)
 
 ```bash
-./scripts/bootstrap-azure.sh --preflight   # quick check
+./scripts/bootstrap-azure.sh --preflight
+```
+
+To regenerate `.env.azure` without waiting for Grafana/image builds, run full bootstrap (reuses ACR/CAE/Event Hub):
+
+```bash
+./scripts/bootstrap-azure.sh
 ```
 
 ---
