@@ -288,10 +288,11 @@ configure_grafana_acr_admin() {
   user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || true)
   pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv 2>/dev/null || true)
   [[ -n "$user" && -n "$pass" ]] || return 1
+  local grafana_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
   az containerapp secret set \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
-    --secrets "acr-admin-password=$pass" \
+    --secrets "grafana-admin-password=$grafana_pass" "acr-admin-password=$pass" \
     --output none
   if ! out=$(az containerapp registry set \
     --name "$GRAFANA_APP_NAME" \

@@ -148,7 +148,8 @@ configure_managed_identity_registry() {
 }
 
 configure_acr_admin_registry() {
-  local user pass out
+  local user pass out grafana_pass
+  grafana_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
   remove_registry_config
   log "Enabling ACR admin user on $ACR_NAME ..."
   if ! az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>&1; then
@@ -159,12 +160,14 @@ configure_acr_admin_registry() {
   pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv 2>/dev/null || true)
   [[ -n "$user" && -n "$pass" ]] || { log "ERROR: could not read ACR admin credentials"; return 1; }
 
-  log "Storing ACR password as Container App secret ..."
-  az containerapp secret set \
+  log "Storing secrets (grafana-admin-password + acr-admin-password) ..."
+  if ! out=$(az containerapp secret set \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
-    --secrets "acr-admin-password=$pass" \
-    --output none
+    --secrets "grafana-admin-password=$grafana_pass" "acr-admin-password=$pass" 2>&1); then
+    log "ERROR: secret set failed: $out"
+    return 1
+  fi
 
   log "Binding registry with admin username/password ..."
   if ! out=$(az containerapp registry set \

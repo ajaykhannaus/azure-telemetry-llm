@@ -323,7 +323,7 @@ Optional — try managed identity first (slower, often fails in sandbox):
 ./scripts/fix-grafana-acr.sh --try-managed-identity
 ```
 
-**If you see `401` / `FetchingKeyVaultSecretFailed` / `ACR token exchange` in system logs:** Run command **19b** (removes broken managed-identity registry config, switches to admin auth, forces new revision).
+**If you see `ContainerAppSecretRefNotFound` / `grafana-admin-password` not found:** Pull latest — `fix-grafana-acr.sh` now sets both Grafana and ACR secrets together.
 
 **If you see `waiting for provisioning` for many minutes:** The old script waited for Azure before granting ACR pull access (image pull fails without it). Pull latest code — `fix-grafana.sh` now assigns AcrPull within ~1 min, then refreshes the revision.
 
