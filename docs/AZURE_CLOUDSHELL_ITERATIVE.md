@@ -220,15 +220,67 @@ ls -la .env.azure
 
 If bootstrap ran in a **different** Cloud Shell session or folder, `.env.azure` is only in that clone — `cd` there or re-run bootstrap in `~/observability`.
 
+### Runner health check (while waiting or after 40/40)
+
+Use these in a **second tab** while `fix-runner.sh` polls, or after you see **1 replica** in the list.
+
+**Set names (once per session):**
+
+```bash
+export RG="az03-al-titan-sandbox-rg"
+export RUNNER="ai-telemetry-runner-dev"
+```
+
+**Replicas (need `-g` / resource group):**
+
+```bash
+az containerapp replica list -n "$RUNNER" -g "$RG" -o table
+```
+
+**Quick status:**
+
+```bash
+az containerapp show -n "$RUNNER" -g "$RG" \
+  --query "{status:properties.runningStatus,provisioning:properties.provisioningState,revision:properties.latestRevisionName}" -o json
+```
+
+| Field | Good value |
+|---|---|
+| `status` | `Running` |
+| `provisioning` | `Succeeded` |
+
+**Test metrics (success = runner is healthy):**
+
+```bash
+RUNNER_FQDN=$(az containerapp show -n "$RUNNER" -g "$RG" \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+
+echo "Metrics: https://${RUNNER_FQDN}/metrics"
+curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
+```
+
+**If still 404 with 1+ replicas — logs:**
+
+```bash
+az containerapp logs show -n "$RUNNER" -g "$RG" --type console --tail 30
+az containerapp logs show -n "$RUNNER" -g "$RG" --type system --tail 20
+```
+
+Look for `Runner starting`, Event Hub errors, or `Publisher misconfigured`.
+
+**While runner polls `/metrics`:** `waiting (4/40) — HTTP 404` or `HTTP 000` is **normal for 2–5 min** while the image pulls and the replica starts.
+
+---
+
 ### Runner stuck at 40/40 polls
 
-After `fix-runner.sh` exhausts waits, read the **diagnostics block** at the end (replicas + system/console logs).
+After `fix-runner.sh` exhausts waits, read the **diagnostics block** at the end.
 
 | Log / symptom | Likely cause | Fix |
 |---|---|---|
 | `401` / `ImagePullBackOff` / no replicas | ACR pull failed | `./scripts/fix-runner.sh --recreate --build` |
 | `Publisher misconfigured` / Event Hub errors | Bad `.env.azure` secrets | Re-run `./scripts/bootstrap-azure.sh`, check `grep EVENTHUB .env.azure` |
-| `/metrics HTTP 404` for many minutes | Replicas not ready (probes) | `git pull` (needs `EVENTHUB_NAME` fix) + `--recreate --build` |
+| `/metrics HTTP 404` for many minutes | Replicas not ready (probes) | `git pull` + `--recreate --build` |
 | `ContainerAppOperationInProgress` | Parallel deploy in another tab | Close tabs, wait 2 min, retry |
 
 Verify Event Hub vars:
@@ -241,22 +293,36 @@ grep -E '^EVENTHUB_' .env.azure
 #   EVENTHUB_CONNECTION_STRING=Endpoint=sb://...
 ```
 
-**While runner polls `/metrics`:** Lines like `waiting (4/40) — HTTP 404` or `HTTP 000` are **normal for the first 2–5 minutes** while Azure pulls the image and starts replicas. Wait until `Runner is healthy` or `(40/40)`.
-
-Check progress in a **second tab** (read-only):
+If still failing at **40/40**:
 
 ```bash
-az containerapp replica list -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg -o table
-az containerapp logs show -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg --type system --tail 15
-```
-
-If still failing at **40/40**, run:
-
-```bash
+git pull
 ./scripts/fix-runner.sh --recreate --build
 ```
 
 ---
+
+### Continue full stack (after runner metrics work)
+
+When `curl .../metrics` shows `ai_gateway` lines:
+
+```bash
+cd ~/observability
+git pull
+
+# Option A — one command
+./scripts/cloudshell-setup-complete.sh
+
+# Option B — step by step
+./scripts/deploy-observability-stack.sh
+export FORCE_CONTAINER_DEPLOY=true
+./scripts/bootstrap-azure.sh --grafana-only --no-build
+./scripts/verify-observability.sh
+```
+
+---
+
+### View secrets
 
 ```bash
 cat .env.azure

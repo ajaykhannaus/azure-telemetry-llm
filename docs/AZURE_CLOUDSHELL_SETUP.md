@@ -254,6 +254,7 @@ curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
 | 15b | Grafana URL + health curl | ☐ |
 | 16–20 | Grafana 404 fix (if needed) | ☐ |
 | 21 | Runner 404 fix (if needed) | ☐ |
+| 21b | Runner health check (replicas + metrics curl) | ☐ |
 | 22 | Verify full stack (optional) | ☐ |
 
 ---
@@ -284,7 +285,7 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 | `SecretRef 'eventhub-namespace' not found` | `git pull` then re-run command 14 |
 | Deploy seems slow (10–15 min) | Normal on first create; use command 14b in a second tab |
 | Grafana **404** / app stopped | Command 19 (`fix-grafana.sh`) or 19b (`fix-grafana-acr.sh`) |
-| Runner **404** / no metrics | Command 21 (`fix-runner.sh`) |
+| Runner **404** / no metrics | Command 21 (`fix-runner.sh`) or 21b (replicas + metrics curl) |
 | `AuthorizationFailed` / async hash on create | Close other Cloud Shell tabs; wait 2 min; re-run command 19 |
 | `Operation expired` on revision | Normal on slow sandbox — re-run command 19; script now polls up to 10 min |
 
@@ -450,6 +451,47 @@ RUNNER_FQDN=$(az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-s
   --query "properties.configuration.ingress.fqdn" -o tsv)
 curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
 ```
+
+---
+
+### Command 21b — runner health check (replicas + metrics)
+
+Use while `fix-runner.sh` is polling, or after you see **1 replica** in the list.
+
+```bash
+export RG="az03-al-titan-sandbox-rg"
+export RUNNER="ai-telemetry-runner-dev"
+
+az containerapp replica list -n "$RUNNER" -g "$RG" -o table
+
+az containerapp show -n "$RUNNER" -g "$RG" \
+  --query "{status:properties.runningStatus,provisioning:properties.provisioningState,revision:properties.latestRevisionName}" -o json
+
+RUNNER_FQDN=$(az containerapp show -n "$RUNNER" -g "$RG" \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+echo "Metrics: https://${RUNNER_FQDN}/metrics"
+curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
+```
+
+**If still 404 with replicas:**
+
+```bash
+az containerapp logs show -n "$RUNNER" -g "$RG" --type console --tail 30
+az containerapp logs show -n "$RUNNER" -g "$RG" --type system --tail 20
+```
+
+**When metrics show `ai_gateway` — continue full stack:**
+
+```bash
+git pull
+./scripts/cloudshell-setup-complete.sh
+# or step by step:
+# ./scripts/deploy-observability-stack.sh
+# export FORCE_CONTAINER_DEPLOY=true && ./scripts/bootstrap-azure.sh --grafana-only --no-build
+# ./scripts/verify-observability.sh
+```
+
+More detail: [AZURE_CLOUDSHELL_ITERATIVE.md — Runner health check](./AZURE_CLOUDSHELL_ITERATIVE.md#runner-health-check-while-waiting-or-after-4040)
 
 ---
 
