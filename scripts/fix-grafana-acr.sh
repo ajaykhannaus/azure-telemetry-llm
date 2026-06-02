@@ -64,6 +64,57 @@ ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" \
   --resource-group "$AZURE_RESOURCE_GROUP" --query loginServer -o tsv 2>/dev/null \
   || az acr show --name "$ACR_NAME" --query loginServer -o tsv)}"
 
+containerapp_provisioning_state() {
+  az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.provisioningState" -o tsv 2>/dev/null || echo "Unknown"
+}
+
+is_op_in_progress_error() {
+  echo "$1" | grep -qiE 'ContainerAppOperationInProgress|active provisioning operation|OperationInProgress'
+}
+
+wait_for_app_idle() {
+  local i state
+  for i in $(seq 1 60); do
+    state=$(containerapp_provisioning_state)
+    case "$state" in
+      Succeeded|Failed)
+        log "App ready for changes (provisioningState=$state)"
+        return 0
+        ;;
+      *)
+        log "Waiting for in-progress Azure operation ($i/60, state=$state) ..."
+        sleep 10
+        ;;
+    esac
+  done
+  log "WARN: app still busy after 10 min (state=$state) — will retry each step"
+  return 0
+}
+
+# Retry an Azure CLI command when ContainerAppOperationInProgress blocks it.
+retry_containerapp() {
+  local label=$1
+  shift
+  local attempt out
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if out=$("$@" 2>&1); then
+      [[ -n "$out" ]] && echo "$out"
+      return 0
+    fi
+    if is_op_in_progress_error "$out"; then
+      log "$label: Azure busy ($attempt/12) — wait 30s then retry"
+      sleep 30
+      wait_for_app_idle
+      continue
+    fi
+    log "ERROR: $label failed: $out"
+    return 1
+  done
+  log "ERROR: $label still blocked after 12 retries — close other Cloud Shell tabs, wait 2 min, re-run"
+  return 1
+}
+
 show_registry_config() {
   log "Current registry config:"
   az containerapp registry list \
@@ -74,11 +125,13 @@ show_registry_config() {
 
 remove_registry_config() {
   log "Removing existing registry config for $ACR_LOGIN_SERVER ..."
-  az containerapp registry remove \
+  retry_containerapp "registry remove" \
+    az containerapp registry remove \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --server "$ACR_LOGIN_SERVER" \
-    --output none 2>/dev/null || true
+    --output none || true
+  wait_for_app_idle
 }
 
 acr_resource_id() {
@@ -132,24 +185,22 @@ wait_for_acr_pull_propagation() {
 }
 
 configure_managed_identity_registry() {
-  local out
   remove_registry_config
   log "Binding registry with managed identity ..."
-  if ! out=$(az containerapp registry set \
+  retry_containerapp "registry set (managed identity)" \
+    az containerapp registry set \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --server "$ACR_LOGIN_SERVER" \
-    --identity system 2>&1); then
-    log "WARN: managed-identity registry set failed: $out"
-    return 1
-  fi
+    --identity system
   show_registry_config
   return 0
 }
 
 configure_acr_admin_registry() {
-  local user pass out grafana_pass
+  local user pass grafana_pass
   grafana_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
+  wait_for_app_idle
   remove_registry_config
   log "Enabling ACR admin user on $ACR_NAME ..."
   if ! az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>&1; then
@@ -161,24 +212,23 @@ configure_acr_admin_registry() {
   [[ -n "$user" && -n "$pass" ]] || { log "ERROR: could not read ACR admin credentials"; return 1; }
 
   log "Storing secrets (grafana-admin-password + acr-admin-password) ..."
-  if ! out=$(az containerapp secret set \
+  retry_containerapp "secret set" \
+    az containerapp secret set \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
-    --secrets "grafana-admin-password=$grafana_pass" "acr-admin-password=$pass" 2>&1); then
-    log "ERROR: secret set failed: $out"
-    return 1
-  fi
+    --secrets "grafana-admin-password=$grafana_pass" "acr-admin-password=$pass" \
+    --output none
+
+  wait_for_app_idle
 
   log "Binding registry with admin username/password ..."
-  if ! out=$(az containerapp registry set \
+  retry_containerapp "registry set (admin)" \
+    az containerapp registry set \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --server "$ACR_LOGIN_SERVER" \
     --username "$user" \
-    --password-secret acr-admin-password 2>&1); then
-    log "ERROR: ACR admin registry set failed: $out"
-    return 1
-  fi
+    --password-secret acr-admin-password
   show_registry_config
   log "ACR admin registry configured (no managed identity)"
   return 0
@@ -191,34 +241,27 @@ system_logs_show_acr_401() {
 }
 
 force_grafana_image_pull() {
-  local image="${ACR_LOGIN_SERVER}/grafana:latest" attempt out rev
+  local image="${ACR_LOGIN_SERVER}/grafana:latest" rev
+  wait_for_app_idle
   log "Forcing new revision to pull $image ..."
-  for attempt in 1 2 3 4 5 6 7 8; do
-    if out=$(az containerapp update \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --image "$image" \
-      --no-wait 2>&1); then
-      log "Revision update accepted (attempt $attempt)"
-      return 0
-    fi
-    if echo "$out" | grep -qiE 'OperationInProgress|active provisioning'; then
-      log "  Azure operation in progress ($attempt/8) — wait 30s"
-      sleep 30
-      continue
-    fi
-    log "WARN: update failed: $out"
-    break
-  done
+  if retry_containerapp "image update" \
+    az containerapp update \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --image "$image" \
+    --no-wait; then
+    return 0
+  fi
   rev=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
     --query "properties.latestRevisionName" -o tsv 2>/dev/null || true)
   if [[ -n "$rev" ]]; then
     log "Falling back to revision restart: $rev"
-    az containerapp revision restart \
+    retry_containerapp "revision restart" \
+      az containerapp revision restart \
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --revision "$rev" \
-      --output none 2>/dev/null || true
+      --output none || true
     return 0
   fi
   return 1
@@ -284,6 +327,8 @@ az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURC
   --query "{status:properties.runningStatus,fqdn:properties.configuration.ingress.fqdn,principalId:identity.principalId,revision:properties.latestRevisionName}" \
   -o json
 show_registry_config
+
+wait_for_app_idle
 
 if [[ "$USE_MANAGED_IDENTITY" == "true" ]]; then
   if ! repair_with_managed_identity; then
