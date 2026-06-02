@@ -309,7 +309,7 @@ chmod +x scripts/fix-grafana.sh
 
 ### Command 19b — ACR auth only (401 / ImagePullBackOff, no delete/recreate)
 
-Use this when command 19 fails with `401`, `FetchingKeyVaultSecretFailed`, or `ACR token exchange` in system logs. It fixes registry permissions on the **existing** app.
+Use when system logs show `401`, `FetchingKeyVaultSecretFailed`, or `managed identity` + `token exchange`. **Uses ACR admin credentials by default** (most reliable in sandbox).
 
 ```bash
 git pull
@@ -317,13 +317,13 @@ chmod +x scripts/fix-grafana-acr.sh
 ./scripts/fix-grafana-acr.sh
 ```
 
-If managed identity still fails in sandbox:
+Optional — try managed identity first (slower, often fails in sandbox):
 
 ```bash
-./scripts/fix-grafana-acr.sh --admin-only
+./scripts/fix-grafana-acr.sh --try-managed-identity
 ```
 
-**If you see `401` / `FetchingKeyVaultSecretFailed` / `ACR token exchange` in system logs:** Run command **19b** above (or re-run command 19 — it now calls 19b automatically on failure).
+**If you see `401` / `FetchingKeyVaultSecretFailed` / `ACR token exchange` in system logs:** Run command **19b** (removes broken managed-identity registry config, switches to admin auth, forces new revision).
 
 **If you see `waiting for provisioning` for many minutes:** The old script waited for Azure before granting ACR pull access (image pull fails without it). Pull latest code — `fix-grafana.sh` now assigns AcrPull within ~1 min, then refreshes the revision.
 
