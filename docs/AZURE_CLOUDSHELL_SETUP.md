@@ -314,10 +314,12 @@ Use when system logs show `401`, `FetchingKeyVaultSecretFailed`, or `managed ide
 ```bash
 git pull
 chmod +x scripts/fix-grafana-acr.sh
-./scripts/fix-grafana-acr.sh
+./scripts/fix-grafana-acr.sh --force
 ```
 
-Optional — try managed identity first (slower, often fails in sandbox):
+**Stuck on `Waiting ... 60/60`?** Ctrl+C, then run with `--force` (scales to 0/1 to cancel stuck Azure operations). Normal run waits at most **~2 min**, not 10.
+
+Optional — try managed identity first (usually fails in sandbox without AcrPull permission):
 
 ```bash
 ./scripts/fix-grafana-acr.sh --try-managed-identity

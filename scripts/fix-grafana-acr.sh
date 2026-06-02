@@ -1,33 +1,29 @@
 #!/usr/bin/env bash
 # Fix Grafana Container App ACR auth (401 / ImagePullBackOff) without delete/recreate.
-# Run when fix-grafana.sh fails with FetchingKeyVaultSecretFailed or token exchange 401.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG="${BOOTSTRAP_CONFIG:-$ROOT/azure/bootstrap-azure.env}"
 USE_MANAGED_IDENTITY=false
 SKIP_PULL=false
+FORCE_UNSTICK=false
 
 usage() {
   cat <<EOF
-Usage: $0 [--try-managed-identity] [--no-git-pull]
+Usage: $0 [--try-managed-identity] [--force] [--no-git-pull]
 
-  Fixes ACR pull for Grafana (default: ACR admin credentials — most reliable in sandbox):
-    1. Remove broken managed-identity registry config (if present)
-    2. Enable ACR admin + store password as Container App secret
-    3. Bind registry with username/password
-    4. Force new revision + poll /api/health
+  Fixes ACR pull for Grafana using ACR admin credentials (default):
+    remove broken registry config → set secrets → bind admin auth → new revision
 
-  Use --try-managed-identity to attempt AcrPull + system identity first (slower).
-
-  Config: azure/bootstrap-azure.env (or BOOTSTRAP_CONFIG)
+  --force   Scale app to 0 then 1 first (use when stuck on "Waiting ... 60/60")
+  Config: azure/bootstrap-azure.env
 EOF
 }
 
 for arg in "$@"; do
   case "$arg" in
     --try-managed-identity) USE_MANAGED_IDENTITY=true ;;
-    --admin-only) ;; # legacy alias — admin is already the default
+    --admin-only|--force) FORCE_UNSTICK=true ;;
     --no-git-pull) SKIP_PULL=true ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown arg: $arg" >&2; usage >&2; exit 1 ;;
@@ -56,6 +52,8 @@ set +a
 
 ACR_NAME="${ACR_NAME:-acrtelemetrydevaj}"
 GRAFANA_APP_NAME="${GRAFANA_APP_NAME:-grafana-telemetry-dev}"
+# Max ~2 min wait for provisioningState (broken apps often stay InProgress forever).
+GRAFANA_ACR_WAIT_MAX="${GRAFANA_ACR_WAIT_MAX:-12}"
 
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 az extension add --name containerapp --upgrade --yes --output none 2>/dev/null || true
@@ -73,26 +71,38 @@ is_op_in_progress_error() {
   echo "$1" | grep -qiE 'ContainerAppOperationInProgress|active provisioning operation|OperationInProgress'
 }
 
-wait_for_app_idle() {
-  local i state
-  for i in $(seq 1 60); do
+unstick_containerapp() {
+  log "Unstick: scale to 0 (cancel stuck operations), then back to 1 ..."
+  az containerapp update \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --min-replicas 0 --max-replicas 0 \
+    --output none 2>/dev/null || true
+  sleep 25
+  az containerapp update \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --min-replicas 1 --max-replicas 1 \
+    --output none 2>/dev/null || true
+  sleep 15
+}
+
+brief_wait_for_idle() {
+  local i state max=$GRAFANA_ACR_WAIT_MAX
+  for i in $(seq 1 max); do
     state=$(containerapp_provisioning_state)
     case "$state" in
-      Succeeded|Failed)
-        log "App ready for changes (provisioningState=$state)"
-        return 0
-        ;;
+      Succeeded|Failed) return 0 ;;
       *)
-        log "Waiting for in-progress Azure operation ($i/60, state=$state) ..."
+        log "Azure state=$state ($i/$max) — brief wait ..."
         sleep 10
         ;;
     esac
   done
-  log "WARN: app still busy after 10 min (state=$state) — will retry each step"
+  log "WARN: still state=$state after ~$(( max * 10 ))s — continuing (will retry each CLI call)"
   return 0
 }
 
-# Retry an Azure CLI command when ContainerAppOperationInProgress blocks it.
 retry_containerapp() {
   local label=$1
   shift
@@ -103,20 +113,19 @@ retry_containerapp() {
       return 0
     fi
     if is_op_in_progress_error "$out"; then
-      log "$label: Azure busy ($attempt/12) — wait 30s then retry"
-      sleep 30
-      wait_for_app_idle
+      log "$label: busy ($attempt/12) — wait 25s"
+      sleep 25
       continue
     fi
     log "ERROR: $label failed: $out"
     return 1
   done
-  log "ERROR: $label still blocked after 12 retries — close other Cloud Shell tabs, wait 2 min, re-run"
+  log "ERROR: $label still blocked — run: ./scripts/fix-grafana-acr.sh --force"
   return 1
 }
 
 show_registry_config() {
-  log "Current registry config:"
+  log "Registry config:"
   az containerapp registry list \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -124,98 +133,27 @@ show_registry_config() {
 }
 
 remove_registry_config() {
-  log "Removing existing registry config for $ACR_LOGIN_SERVER ..."
+  log "Removing registry config for $ACR_LOGIN_SERVER (if any) ..."
   retry_containerapp "registry remove" \
     az containerapp registry remove \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --server "$ACR_LOGIN_SERVER" \
     --output none || true
-  wait_for_app_idle
-}
-
-acr_resource_id() {
-  az acr show --name "$ACR_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query id -o tsv 2>/dev/null \
-    || az acr show --name "$ACR_NAME" --query id -o tsv
-}
-
-acr_pull_assigned() {
-  local principal_id=$1 acr_id=$2 count
-  [[ -n "$principal_id" && -n "$acr_id" ]] || return 1
-  count=$(az role assignment list --assignee-object-id "$principal_id" --scope "$acr_id" \
-    --query "[?roleDefinitionName=='AcrPull'] | length(@)" -o tsv 2>/dev/null || echo 0)
-  [[ "${count:-0}" -gt 0 ]]
-}
-
-assign_acr_pull() {
-  local principal_id=$1 acr_id=$2 out
-  if acr_pull_assigned "$principal_id" "$acr_id"; then
-    log "AcrPull already assigned for $principal_id"
-    return 0
-  fi
-  log "Assigning AcrPull to $principal_id ..."
-  if ! out=$(az role assignment create \
-      --assignee-object-id "$principal_id" \
-      --assignee-principal-type ServicePrincipal \
-      --role AcrPull \
-      --scope "$acr_id" 2>&1); then
-    if echo "$out" | grep -qi 'RoleAssignmentExists'; then
-      return 0
-    fi
-    if echo "$out" | grep -qi 'AuthorizationFailed'; then
-      log "WARN: cannot assign AcrPull (no roleAssignments/write) — use admin mode"
-      return 1
-    fi
-    log "ERROR: AcrPull assignment failed: $out"
-    return 1
-  fi
-  log "AcrPull role assignment created"
-  return 0
-}
-
-wait_for_acr_pull_propagation() {
-  local principal_id=$1 acr_id=$2 i
-  log "Waiting for AcrPull + token propagation (up to ~4 min) ..."
-  for i in $(seq 1 24); do
-    if acr_pull_assigned "$principal_id" "$acr_id"; then
-      log "  AcrPull visible ($i/24)"
-      (( i >= 10 )) && return 0
-    fi
-    sleep 10
-  done
-  return 1
-}
-
-configure_managed_identity_registry() {
-  remove_registry_config
-  log "Binding registry with managed identity ..."
-  retry_containerapp "registry set (managed identity)" \
-    az containerapp registry set \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --server "$ACR_LOGIN_SERVER" \
-    --identity system
-  show_registry_config
-  return 0
 }
 
 configure_acr_admin_registry() {
   local user pass grafana_pass
   grafana_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
-  wait_for_app_idle
-  remove_registry_config
-  log "Enabling ACR admin user on $ACR_NAME ..."
-  if ! az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>&1; then
-    log "ERROR: could not enable ACR admin user (need Contributor on ACR)"
-    return 1
-  fi
-  user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || true)
-  pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv 2>/dev/null || true)
-  [[ -n "$user" && -n "$pass" ]] || { log "ERROR: could not read ACR admin credentials"; return 1; }
 
-  log "Storing grafana-admin-password secret ..."
+  remove_registry_config
+
+  log "Enabling ACR admin on $ACR_NAME ..."
+  az acr update --name "$ACR_NAME" --admin-enabled true --output none
+  user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
+  pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
+
+  log "Setting grafana-admin-password secret ..."
   retry_containerapp "secret set" \
     az containerapp secret set \
     --name "$GRAFANA_APP_NAME" \
@@ -223,52 +161,27 @@ configure_acr_admin_registry() {
     --secrets "grafana-admin-password=$grafana_pass" \
     --output none
 
-  wait_for_app_idle
-
-  log "Binding registry with admin username/password ..."
-  retry_containerapp "registry set (admin)" \
+  log "Binding ACR admin registry ..."
+  retry_containerapp "registry set" \
     az containerapp registry set \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --server "$ACR_LOGIN_SERVER" \
     --username "$user" \
     --password "$pass"
-  show_registry_config
-  log "ACR admin registry configured (no managed identity)"
-  return 0
-}
 
-system_logs_show_acr_401() {
-  az containerapp logs show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-    --type system --tail 25 2>/dev/null \
-    | grep -qiE '401|token exchange|FetchingKeyVaultSecretFailed|managed identity'
+  show_registry_config
 }
 
 force_grafana_image_pull() {
-  local image="${ACR_LOGIN_SERVER}/grafana:latest" rev
-  wait_for_app_idle
-  log "Forcing new revision to pull $image ..."
-  if retry_containerapp "image update" \
+  local image="${ACR_LOGIN_SERVER}/grafana:latest"
+  log "New revision: $image"
+  retry_containerapp "image update" \
     az containerapp update \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --image "$image" \
-    --no-wait; then
-    return 0
-  fi
-  rev=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query "properties.latestRevisionName" -o tsv 2>/dev/null || true)
-  if [[ -n "$rev" ]]; then
-    log "Falling back to revision restart: $rev"
-    retry_containerapp "revision restart" \
-      az containerapp revision restart \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --revision "$rev" \
-      --output none || true
-    return 0
-  fi
-  return 1
+    --no-wait
 }
 
 wait_for_grafana_health() {
@@ -281,80 +194,45 @@ wait_for_grafana_health() {
       echo "Open: https://${fqdn}  (login: admin / ${GRAFANA_ADMIN_PASSWORD:-admin})"
       return 0
     fi
-    if (( i == 1 || i % 4 == 0 )); then
-      log "  waiting ($i/40) ..."
-      if system_logs_show_acr_401; then
-        log "  WARN: system logs still show ACR 401 — managed identity may still be active"
-      fi
-    fi
+    (( i == 1 || i % 4 == 0 )) && log "  waiting ($i/40) ..."
     sleep 15
   done
   return 1
 }
 
-repair_with_admin() {
-  configure_acr_admin_registry
-  force_grafana_image_pull
-}
-
-repair_with_managed_identity() {
-  local principal_id acr_id
-  principal_id=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query identity.principalId -o tsv 2>/dev/null || true)
-  [[ -n "$principal_id" ]] || { log "ERROR: no managed identity on app"; return 1; }
-  acr_id=$(acr_resource_id)
-  assign_acr_pull "$principal_id" "$acr_id" || return 1
-  wait_for_acr_pull_propagation "$principal_id" "$acr_id" || true
-  configure_managed_identity_registry || return 1
-  force_grafana_image_pull
-}
-
 # ── main ─────────────────────────────────────────────────────────────────────
 
-log "Grafana ACR auth repair for $GRAFANA_APP_NAME"
-log "ACR: $ACR_LOGIN_SERVER"
-log "Mode: $([[ "$USE_MANAGED_IDENTITY" == "true" ]] && echo managed-identity || echo admin-credentials)"
+log "Grafana ACR repair: $GRAFANA_APP_NAME  ACR: $ACR_LOGIN_SERVER"
 
 if ! az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
-  log "ERROR: Container App $GRAFANA_APP_NAME does not exist. Run: ./scripts/fix-grafana.sh"
+  log "ERROR: app missing — run ./scripts/fix-grafana.sh first"
   exit 1
 fi
 
 if ! az acr repository show --name "$ACR_NAME" --image grafana:latest >/dev/null 2>&1; then
-  log "ERROR: $ACR_LOGIN_SERVER/grafana:latest not in ACR."
-  log "Run: FORCE_IMAGE_BUILD=true ./scripts/bootstrap-azure.sh --grafana-only"
+  log "ERROR: grafana:latest not in ACR — run FORCE_IMAGE_BUILD=true ./scripts/bootstrap-azure.sh --grafana-only"
   exit 1
 fi
 
-log "Step 1: app status"
 az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-  --query "{status:properties.runningStatus,fqdn:properties.configuration.ingress.fqdn,principalId:identity.principalId,revision:properties.latestRevisionName}" \
+  --query "{status:properties.runningStatus,provisioning:properties.provisioningState,fqdn:properties.configuration.ingress.fqdn,revision:properties.latestRevisionName}" \
   -o json
 show_registry_config
 
-wait_for_app_idle
+[[ "$FORCE_UNSTICK" == "true" ]] && unstick_containerapp
+brief_wait_for_idle
 
 if [[ "$USE_MANAGED_IDENTITY" == "true" ]]; then
-  if ! repair_with_managed_identity; then
-    log "Managed identity failed — switching to ACR admin ..."
-    repair_with_admin
-  fi
-else
-  repair_with_admin
+  log "WARN: --try-managed-identity ignored in fast path; using ACR admin (sandbox)"
 fi
+
+configure_acr_admin_registry
+force_grafana_image_pull
 
 FQDN=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-  --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-[[ -z "$FQDN" ]] && { log "ERROR: no ingress FQDN"; exit 1; }
-
-if wait_for_grafana_health "$FQDN"; then
-  exit 0
-fi
-
-log "Still not healthy. Recent system logs:"
-az containerapp logs show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-  --type system --tail 20 2>/dev/null || true
-log "Replicas:"
-az containerapp replica list --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" -o table 2>/dev/null \
-  || log "  (no replicas)"
-exit 1
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+wait_for_grafana_health "$FQDN" || {
+  log "Not healthy yet. Try: ./scripts/fix-grafana-acr.sh --force"
+  az containerapp replica list -n "$GRAFANA_APP_NAME" -g "$AZURE_RESOURCE_GROUP" -o table 2>/dev/null || true
+  exit 1
+}

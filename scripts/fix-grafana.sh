@@ -80,10 +80,10 @@ if [[ -n "$FQDN" ]] && curl -sf --max-time 20 "https://${FQDN}/api/health" >/dev
   log "Grafana is healthy: https://${FQDN}  (admin / ${GRAFANA_ADMIN_PASSWORD:-admin})"
 else
   echo ""
-  log "Full repair did not reach /api/health — trying ACR auth fix (admin credentials) ..."
+  log "Full repair did not reach /api/health — trying ACR auth fix (admin + --force) ..."
   chmod +x "$ROOT/scripts/fix-grafana-acr.sh"
   set +e
-  "$ROOT/scripts/fix-grafana-acr.sh" --no-git-pull
+  "$ROOT/scripts/fix-grafana-acr.sh" --force --no-git-pull
   acr_rc=$?
   set -e
   [[ "$acr_rc" -eq 0 ]] && exit 0
