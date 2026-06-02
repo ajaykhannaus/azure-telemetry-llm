@@ -403,14 +403,20 @@ delete_grafana_app() {
 
 create_grafana_app() {
   local rendered=$1
-  local attempt out
+  local blocking=${2:-false}
+  local attempt out wait_args=(--no-wait)
+  [[ "$blocking" == "true" ]] && wait_args=()
   for attempt in 1 2 3 4 5 6; do
     if out=$(az containerapp create \
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --yaml "$rendered" \
-      --no-wait 2>&1); then
-      log "grafana: create accepted (provisioning in background)"
+      "${wait_args[@]}" 2>&1); then
+      if [[ "$blocking" == "true" ]]; then
+        log "grafana: create complete (ACR admin YAML, waited for Azure)"
+      else
+        log "grafana: create accepted (provisioning in background)"
+      fi
       return 0
     fi
     if echo "$out" | grep -qiE 'AuthorizationFailed|async operation|content hash'; then
@@ -538,6 +544,54 @@ write_grafana_env() {
   } >> "$WRITE_ENV_FILE"
 }
 
+render_grafana_acr_admin_yaml() {
+  local dest=$1 prom_url=$2 grafana_pass=$3 env_id=$4 grafana_image=$5
+  local user pass
+  log "grafana: render ACR-admin YAML (secrets + registry in one create)"
+  if ! az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null; then
+    log "WARN: could not enable ACR admin on $ACR_NAME"
+    return 1
+  fi
+  user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || true)
+  pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv 2>/dev/null || true)
+  [[ -n "$user" && -n "$pass" ]] || return 1
+  awk -v loc="$AZURE_LOCATION" \
+      -v env_id="$env_id" \
+      -v acr_server="$ACR_LOGIN_SERVER" \
+      -v acr_user="$user" \
+      -v acr_pass="$pass" \
+      -v image="$grafana_image" \
+      -v prom_url="$prom_url" \
+      -v grafana_pass="$grafana_pass" \
+      '{
+        gsub(/__LOCATION__/, loc)
+        gsub(/__MANAGED_ENV_ID__/, env_id)
+        gsub(/__ACR_LOGIN_SERVER__/, acr_server)
+        gsub(/__ACR_USERNAME__/, acr_user)
+        gsub(/__ACR_ADMIN_PASSWORD__/, acr_pass)
+        gsub(/__IMAGE__/, image)
+        gsub(/__PROMETHEUS_URL__/, prom_url)
+        gsub(/__GRAFANA_ADMIN_PASSWORD__/, grafana_pass)
+        print
+      }' "$ROOT/infra/grafana-acr-admin.template.yaml" > "$dest"
+  validate_grafana_yaml "$dest"
+  GRAFANA_REGISTRY_MODE=admin
+  return 0
+}
+
+render_grafana_standard_yaml() {
+  local dest=$1 prom_url=$2 grafana_pass=$3 env_id=$4 grafana_image=$5
+  sed \
+    -e "s|__LOCATION__|${AZURE_LOCATION}|g" \
+    -e "s|__MANAGED_ENV_ID__|${env_id}|g" \
+    -e "s|__ACR_LOGIN_SERVER__|${ACR_LOGIN_SERVER}|g" \
+    -e "s|__IMAGE__|${grafana_image}|g" \
+    -e "s|__PROMETHEUS_URL__|${prom_url}|g" \
+    -e "s|__GRAFANA_ADMIN_PASSWORD__|${grafana_pass}|g" \
+    "$ROOT/infra/grafana.template.yaml" > "$dest"
+  validate_grafana_yaml "$dest"
+}
+
 deploy_grafana() {
   local grafana_image="$ACR_LOGIN_SERVER/grafana:latest"
   local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
@@ -570,27 +624,24 @@ deploy_grafana() {
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --query id -o tsv)
   rendered="$ROOT/infra/grafana.rendered.yaml"
-  sed \
-    -e "s|__LOCATION__|${AZURE_LOCATION}|g" \
-    -e "s|__MANAGED_ENV_ID__|${env_id}|g" \
-    -e "s|__ACR_LOGIN_SERVER__|${ACR_LOGIN_SERVER}|g" \
-    -e "s|__IMAGE__|${grafana_image}|g" \
-    -e "s|__PROMETHEUS_URL__|${prom_url}|g" \
-    -e "s|__GRAFANA_ADMIN_PASSWORD__|${admin_pass}|g" \
-    "$ROOT/infra/grafana.template.yaml" > "$rendered"
-  validate_grafana_yaml "$rendered"
 
   if ! acr_image_exists "grafana:latest"; then
     log "ERROR: $ACR_LOGIN_SERVER/grafana:latest missing — run: FORCE_IMAGE_BUILD=true ./scripts/bootstrap-azure.sh --grafana-only"
-    rm -f "$rendered"
     return 1
   fi
 
   if containerapp_exists "$GRAFANA_APP_NAME"; then
+    render_grafana_standard_yaml "$rendered" "$prom_url" "$admin_pass" "$env_id" "$grafana_image"
     log "grafana: update $GRAFANA_APP_NAME (not serving or forced)"
     ensure_grafana_acr_pull
     apply_grafana_yaml "$rendered"
+  elif [[ "${GRAFANA_ACR_USE_ADMIN:-true}" == "true" ]]; then
+    render_grafana_acr_admin_yaml "$rendered" "$prom_url" "$admin_pass" "$env_id" "$grafana_image" \
+      || { log "ERROR: failed to render ACR-admin YAML"; return 1; }
+    log "grafana: create $GRAFANA_APP_NAME (ACR admin in YAML, blocking create)"
+    create_grafana_app "$rendered" true
   else
+    render_grafana_standard_yaml "$rendered" "$prom_url" "$admin_pass" "$env_id" "$grafana_image"
     log "grafana: create $GRAFANA_APP_NAME"
     create_grafana_app "$rendered"
     wait_for_grafana_identity "$GRAFANA_APP_NAME" || true

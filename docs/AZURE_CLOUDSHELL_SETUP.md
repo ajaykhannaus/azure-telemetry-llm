@@ -323,9 +323,10 @@ chmod +x scripts/fix-grafana-acr.sh
 ./scripts/fix-grafana-acr.sh --force
 ```
 
-**`provisioningState=Failed`?** Same command (`--force` auto-runs on Failed). If still broken:
+**`provisioningState=Failed` or `secret set busy` on `--recreate`?** Pull latest — create now embeds ACR admin auth in YAML (one blocking create, no post-create secret set):
 
 ```bash
+git pull
 ./scripts/fix-grafana-acr.sh --recreate
 ```
 

@@ -1,0 +1,75 @@
+# Grafana Container App template with ACR admin registry auth (sandbox).
+# Used when managed identity / AcrPull is unavailable. See scripts/bootstrap-azure.sh.
+location: __LOCATION__
+properties:
+  managedEnvironmentId: __MANAGED_ENV_ID__
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      targetPort: 3000
+      transport: auto
+      allowInsecure: false
+    registries:
+      - server: __ACR_LOGIN_SERVER__
+        username: __ACR_USERNAME__
+        passwordSecretRef: acr-admin-password
+    secrets:
+      - name: grafana-admin-password
+        value: __GRAFANA_ADMIN_PASSWORD__
+      - name: acr-admin-password
+        value: __ACR_ADMIN_PASSWORD__
+  template:
+    containers:
+      - name: grafana
+        image: __IMAGE__
+        resources:
+          cpu: 1.0
+          memory: 2Gi
+        env:
+          - name: GF_SECURITY_ADMIN_USER
+            value: admin
+          - name: GF_SECURITY_ADMIN_PASSWORD
+            secretRef: grafana-admin-password
+          - name: GF_AUTH_ANONYMOUS_ENABLED
+            value: "false"
+          - name: GF_USERS_ALLOW_SIGN_UP
+            value: "false"
+          - name: GF_USERS_DEFAULT_THEME
+            value: light
+          - name: GF_SERVER_ROOT_URL
+            value: "%(protocol)s://%(domain)s/"
+          - name: GF_ANALYTICS_REPORTING_ENABLED
+            value: "false"
+          - name: PROMETHEUS_URL
+            value: __PROMETHEUS_URL__
+        probes:
+          - type: Startup
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 30
+          - type: Liveness
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 5
+          - type: Readiness
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 15
+            timeoutSeconds: 10
+            failureThreshold: 10
+    scale:
+      minReplicas: 1
+      maxReplicas: 1
+identity:
+  type: SystemAssigned
