@@ -169,7 +169,14 @@ az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg \
 # Grafana
 az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg \
   --query "{name:name,status:properties.runningStatus,fqdn:properties.configuration.ingress.fqdn}" -o json
+
+# Grafana health (404 fix: must return JSON, not an HTML error page)
+GRAFANA_FQDN=$(az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+curl -sf "https://${GRAFANA_FQDN}/api/health"
 ```
+
+**Grafana is truly up** when `curl` returns JSON like `{"database":"ok",...}`. If you get **404** while status is `Running`, use commands 18–20.
 
 **While deploy is in progress:** status may be `Processing` or `Running` — wait for command 14 to finish in the first tab.
 
@@ -187,6 +194,23 @@ Download via Cloud Shell **Download** if you want a copy for later.
 
 ---
 
+### Command 15b — open Grafana + verify runner (after deploy)
+
+```bash
+# Grafana login page + health
+GRAFANA_FQDN=$(az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+echo "Grafana: https://${GRAFANA_FQDN}  (admin / admin)"
+curl -sf "https://${GRAFANA_FQDN}/api/health"
+
+# Runner metrics (optional)
+RUNNER_FQDN=$(az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
+```
+
+---
+
 ## Checklist (all Azure Bash)
 
 | # | Command | Done? |
@@ -200,7 +224,8 @@ Download via Cloud Shell **Download** if you want a copy for later.
 | 11 | bootstrap | ☐ |
 | 12 | ADX schema in Portal | ☐ |
 | 14 | `cloudshell-deploy.sh` | ☐ |
-| 16–17 | Grafana 404 fix (if needed) | ☐ |
+| 15b | Grafana URL + health curl | ☐ |
+| 16–20 | Grafana 404 fix (if needed) | ☐ |
 
 ---
 
@@ -210,9 +235,10 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 
 | Re-run | Behavior |
 |---|---|
-| `./scripts/bootstrap-azure.sh` | Reuses ACR, CAE, Event Hub, Prometheus workspace, Managed Grafana, ADX; skips image build if app is running or `:latest` already in ACR; skips Grafana deploy only if `$GRAFANA_APP_NAME` is **Running** |
-| `./scripts/bootstrap-azure.sh --grafana-only` | Redeploy self-hosted Grafana only (updates if stopped) |
+| `./scripts/bootstrap-azure.sh` | Reuses ACR, CAE, Event Hub, Prometheus workspace, Managed Grafana, ADX; skips image build if app is serving or `:latest` already in ACR; skips Grafana deploy only if `/api/health` succeeds |
+| `./scripts/bootstrap-azure.sh --grafana-only` | Redeploy self-hosted Grafana only (updates if not serving traffic) |
 | `./scripts/cloudshell-deploy.sh` | Deploys runner + Grafana + verify; skips runner if `$APP_NAME` already exists |
+| Force Grafana recreate | `export GRAFANA_RECREATE=true` then `--grafana-only` |
 | Force Container App update | `export FORCE_CONTAINER_DEPLOY=true` before deploy |
 | Force image rebuild | `export FORCE_IMAGE_BUILD=true` before bootstrap |
 
@@ -228,19 +254,25 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 | Deploy fails on Event Hub | Re-run command 11 |
 | `SecretRef 'eventhub-namespace' not found` | `git pull` then re-run command 14 |
 | Deploy seems slow (10–15 min) | Normal on first create; use command 14b in a second tab |
-| Grafana **404** / app stopped | Commands 16–19 below — `Running` ≠ serving traffic |
+| Grafana **404** / app stopped | Commands 16–20 below — `Running` ≠ serving traffic |
 
 ---
 
-### Command 16 — check Grafana Container App status
+### Command 16 — check Grafana status + health
 
 ```bash
 git pull
 az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg \
   --query "{status:properties.runningStatus,fqdn:properties.configuration.ingress.fqdn}" -o json
+
+GRAFANA_FQDN=$(az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+curl -sf "https://${GRAFANA_FQDN}/api/health"
 ```
 
-**Success:** `"status": "Running"` and an `fqdn` URL. Open `https://<fqdn>` (login: **admin** / **admin**).
+**Success:** `"status": "Running"` **and** `curl` returns JSON (not 404 HTML). Open `https://<fqdn>` (login: **admin** / **admin**).
+
+**If `Running` but curl fails:** continue to command 18 — the app exists but no healthy replica is serving traffic.
 
 ---
 
@@ -273,6 +305,17 @@ export FORCE_IMAGE_BUILD=true
 ```
 
 Wait until you see `grafana: healthy at https://...` then open that URL (login: **admin** / **admin**).
+
+---
+
+### Command 20 — confirm Grafana is fixed
+
+```bash
+GRAFANA_FQDN=$(az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+curl -sf "https://${GRAFANA_FQDN}/api/health"
+echo "Open: https://${GRAFANA_FQDN}"
+```
 
 Or redeploy everything:
 
