@@ -145,16 +145,55 @@ diagnose_runner_failure() {
   log "  3. Close other Cloud Shell tabs; wait 2 min if ContainerAppOperationInProgress"
 }
 
+wait_for_provisioning() {
+  local i state
+  log "Waiting for Azure to finish provisioning $APP_NAME ..."
+  for i in $(seq 1 36); do
+    state=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.provisioningState" -o tsv 2>/dev/null || echo "Unknown")
+    case "$state" in
+      Succeeded) log "provisioningState=Succeeded"; return 0 ;;
+      Failed)
+        log "ERROR: provisioningState=Failed"
+        return 1
+        ;;
+      *)
+        (( i == 1 || i % 6 == 0 )) && log "  provisioning ($i/36): $state"
+        sleep 10
+        ;;
+    esac
+  done
+  log "WARN: provisioning still not Succeeded — continuing to poll /metrics"
+  return 0
+}
+
+runner_replica_summary() {
+  local count
+  count=$(az containerapp replica list --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "length(@)" -o tsv 2>/dev/null || echo "0")
+  log "  replicas running: ${count:-0}"
+  if [[ "${count:-0}" == "0" ]]; then
+    az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --type system --tail 5 2>/dev/null | sed 's/^/[fix-runner]   system: /' || true
+  fi
+}
+
 wait_for_runner() {
-  local fqdn=$1 i code
+  local fqdn=$1 i code body
   log "Polling https://${fqdn}/metrics (up to ~10 min) ..."
+  log "  (404 or HTTP 000 for the first few minutes is normal while the image pulls and replicas start)"
   for i in $(seq 1 40); do
-    if curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null | grep -q ai_gateway; then
+    body=$(curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null || true)
+    if [[ -n "$body" ]] && echo "$body" | grep -q ai_gateway; then
       log "Runner is healthy: https://${fqdn}/metrics"
       return 0
     fi
-    code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "https://${fqdn}/metrics" 2>/dev/null || echo "000")
-    (( i == 1 || i % 4 == 0 )) && log "  waiting ($i/40) — /metrics HTTP ${code} (404=no ready replicas yet)"
+    code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "https://${fqdn}/metrics" 2>/dev/null || true)
+    [[ -z "$code" || "$code" == "000" ]] && code="000 (not reachable yet)"
+    if (( i == 1 || i % 4 == 0 )); then
+      log "  waiting ($i/40) — /metrics HTTP ${code}"
+      runner_replica_summary
+    fi
     sleep 15
   done
   return 1
@@ -213,6 +252,8 @@ else
 fi
 
 rm -f "$rendered"
+
+wait_for_provisioning || true
 
 FQDN=$(runner_fqdn)
 [[ -z "$FQDN" ]] && { log "ERROR: no ingress FQDN"; exit 1; }

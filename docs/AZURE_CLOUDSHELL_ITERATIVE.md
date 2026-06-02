@@ -241,10 +241,18 @@ grep -E '^EVENTHUB_' .env.azure
 #   EVENTHUB_CONNECTION_STRING=Endpoint=sb://...
 ```
 
-Redeploy with latest fix:
+**While runner polls `/metrics`:** Lines like `waiting (4/40) — HTTP 404` or `HTTP 000` are **normal for the first 2–5 minutes** while Azure pulls the image and starts replicas. Wait until `Runner is healthy` or `(40/40)`.
+
+Check progress in a **second tab** (read-only):
 
 ```bash
-git pull
+az containerapp replica list -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg -o table
+az containerapp logs show -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg --type system --tail 15
+```
+
+If still failing at **40/40**, run:
+
+```bash
 ./scripts/fix-runner.sh --recreate --build
 ```
 
