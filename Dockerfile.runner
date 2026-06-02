@@ -17,6 +17,7 @@ COPY generator/requirements.txt /app/generator/requirements.txt
 RUN pip install --no-cache-dir -r /app/generator/requirements.txt
 
 COPY generator/ /app/generator/
+COPY observability/ /app/observability/
 
 # Create a non-root user with no shell, then drop privileges. Container Apps
 # does not enforce non-root by default, but doing so here protects against

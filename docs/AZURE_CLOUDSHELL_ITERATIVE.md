@@ -266,7 +266,7 @@ az containerapp logs show -n "$RUNNER" -g "$RG" --type console --tail 30
 az containerapp logs show -n "$RUNNER" -g "$RG" --type system --tail 20
 ```
 
-Look for `Runner starting`, Event Hub errors, or `Publisher misconfigured`.
+Look for `Runner starting`, Event Hub errors, `Publisher misconfigured`, or **`ModuleNotFoundError: No module named 'observability'`** (rebuild runner image: `./scripts/fix-runner.sh --recreate --build`).
 
 **While runner polls `/metrics`:** `waiting (4/40) — HTTP 404` or `HTTP 000` is **normal for 2–5 min** while the image pulls and the replica starts.
 
@@ -281,6 +281,7 @@ After `fix-runner.sh` exhausts waits, read the **diagnostics block** at the end.
 | `401` / `ImagePullBackOff` / no replicas | ACR pull failed | `./scripts/fix-runner.sh --recreate --build` |
 | `Publisher misconfigured` / Event Hub errors | Bad `.env.azure` secrets | Re-run `./scripts/bootstrap-azure.sh`, check `grep EVENTHUB .env.azure` |
 | `/metrics HTTP 404` for many minutes | Replicas not ready (probes) | `git pull` + `--recreate --build` |
+| `ContainerTerminated` exit code **1** (~400ms after start) | Runner image missing `observability/` package | `git pull` then `./scripts/fix-runner.sh --recreate --build` |
 | `ContainerAppOperationInProgress` | Parallel deploy in another tab | Close tabs, wait 2 min, retry |
 
 Verify Event Hub vars:
