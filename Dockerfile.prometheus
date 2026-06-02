@@ -8,6 +8,7 @@
 FROM prom/prometheus:v2.54.1
 
 COPY prometheus.yml /etc/prometheus/prometheus.yml
+COPY prometheus-sandbox.yml /etc/prometheus/prometheus-sandbox.yml
 COPY rules.yml      /etc/prometheus/rules.yml
 
 # The entrypoint script substitutes runtime env vars into prometheus.yml,

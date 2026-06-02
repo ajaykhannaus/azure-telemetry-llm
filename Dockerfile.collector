@@ -3,11 +3,13 @@
 # prometheusremotewrite exporters are available out of the box.
 FROM otel/opentelemetry-collector-contrib:0.111.0
 
-COPY infra/otel-collector-config.yaml /etc/otelcol-contrib/config.yaml
+COPY infra/otel-collector-azure-config.yaml /etc/otelcol-contrib/config.yaml
+COPY azure/otel-collector-entrypoint.sh /otel-collector-entrypoint.sh
 
-# Non-root user is already the default in the upstream image; we only need
-# to expose the OTLP, health-check, and self-metrics ports.
+USER root
+RUN chmod +x /otel-collector-entrypoint.sh
+USER 10001
+
 EXPOSE 4317 4318 8888 13133
 
-ENTRYPOINT ["/otelcol-contrib"]
-CMD ["--config=/etc/otelcol-contrib/config.yaml"]
+ENTRYPOINT ["/otel-collector-entrypoint.sh"]

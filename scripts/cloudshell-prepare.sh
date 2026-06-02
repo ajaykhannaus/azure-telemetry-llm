@@ -14,6 +14,8 @@ fi
 
 chmod +x scripts/bootstrap-azure.sh infra/bootstrap.sh infra/adx-data-connection.sh
 chmod +x scripts/cloudshell-prepare.sh scripts/cloudshell-deploy.sh scripts/deploy-local.sh
+chmod +x scripts/cloudshell-setup-complete.sh scripts/deploy-observability-stack.sh
+chmod +x scripts/verify-observability.sh scripts/fix-grafana.sh scripts/fix-grafana-acr.sh scripts/fix-runner.sh
 
 echo ""
 echo "Run these commands ONE AT A TIME:"

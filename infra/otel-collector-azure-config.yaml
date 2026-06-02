@@ -1,0 +1,90 @@
+# OTel Collector — Azure Container Apps (endpoints injected at container start).
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  prometheus/self:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          scrape_interval: 30s
+          static_configs:
+            - targets: ["0.0.0.0:8888"]
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 400
+    spike_limit_mib: 100
+
+  resource:
+    attributes:
+      - key: deployment.environment
+        from_attribute: deployment.environment
+        action: upsert
+      - key: cloud.provider
+        value: azure
+        action: insert
+
+  attributes/drop_high_cardinality:
+    actions:
+      - key: ai.request.id
+        action: delete
+      - key: ai.session.id
+        action: delete
+      - key: ai.user.id
+        action: delete
+      - key: ai.user.email
+        action: delete
+
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+exporters:
+  otlp/tempo:
+    endpoint: __TEMPO_ENDPOINT__
+    tls:
+      insecure: true
+
+  prometheusremotewrite:
+    endpoint: __PROM_WRITE_ENDPOINT__
+    tls:
+      insecure: true
+    resource_to_telemetry_conversion:
+      enabled: true
+
+  loki:
+    endpoint: __LOKI_ENDPOINT__
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [otlp/tempo]
+
+    metrics:
+      receivers: [otlp, prometheus/self]
+      processors: [memory_limiter, resource, attributes/drop_high_cardinality, batch]
+      exporters: [prometheusremotewrite]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, batch]
+      exporters: [loki]
+
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      address: 0.0.0.0:8888

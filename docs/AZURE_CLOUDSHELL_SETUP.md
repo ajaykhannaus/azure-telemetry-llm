@@ -1,5 +1,7 @@
 # Azure Cloud Shell Setup (Beginner — All on Azure Bash, No Mac)
 
+> **Re-run / fix / verify commands:** see [AZURE_CLOUDSHELL_ITERATIVE.md](./AZURE_CLOUDSHELL_ITERATIVE.md)
+
 Open [Azure Cloud Shell](https://shell.azure.com) → choose **Bash**.
 
 Run **one command at a time**. Wait for each to finish.
@@ -143,15 +145,38 @@ chmod +x scripts/cloudshell-deploy.sh
 
 ---
 
-### Command 14 — deploy Container App + Grafana + verify
+### Command 14 — deploy full observability stack (~20–35 min first time)
+
+Deploys **everything end-to-end**: runner → OTLP/logs/traces/metrics → Loki/Tempo/Prometheus → Grafana (7 dashboards).
 
 ```bash
 ./scripts/cloudshell-deploy.sh
 ```
 
-**Success:** `Done — app is running in Azure.`
+This runs `cloudshell-setup-complete.sh` which:
 
-**Typical runtime:** 8–15 min on first deploy (Container App create can sit on `Running ..` for several minutes with no new lines — that is normal).
+1. **Runner** — metrics on `/metrics`, Event Hub events, OTLP export to collector
+2. **Loki** — log store (OTLP logs from runner)
+3. **Tempo** — trace store (OTLP traces from runner)
+4. **Prometheus scraper** — scrapes runner `/metrics` (sandbox mode, no Azure Managed Prometheus)
+5. **OTel Collector** — receives OTLP on port 4317, routes to Loki/Tempo/Prometheus
+6. **Grafana** — Prometheus + Loki + Tempo datasources wired, 7 dashboards pre-loaded
+
+**Success:** ends with `Full observability stack is ready` and verify checks passing.
+
+**Typical runtime:** 20–35 min on first deploy (includes ACR builds for tempo/collector/prometheus/grafana images).
+
+**Data paths after deploy:**
+
+| Signal | Path | Grafana datasource |
+|---|---|---|
+| Metrics | runner `/metrics` → Prometheus scraper | Prometheus |
+| Traces | runner OTLP → OTel Collector → Tempo | Tempo |
+| Logs (OTLP) | runner OTLP → OTel Collector → Loki | Loki |
+| Events | runner → Event Hub | (ADX when enabled) |
+| Platform logs | Container App stdout → Log Analytics | Azure Portal |
+
+**Success (legacy):** `Done — full observability stack is running in Azure.`
 
 ---
 
@@ -223,9 +248,11 @@ curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
 | 9 | preflight | ☐ |
 | 11 | bootstrap | ☐ |
 | 12 | ADX schema in Portal | ☐ |
-| 14 | `cloudshell-deploy.sh` | ☐ |
+| 14 | `cloudshell-deploy.sh` (full stack) | ☐ |
 | 15b | Grafana URL + health curl | ☐ |
 | 16–20 | Grafana 404 fix (if needed) | ☐ |
+| 21 | Runner 404 fix (if needed) | ☐ |
+| 22 | Verify full stack (optional) | ☐ |
 
 ---
 
@@ -424,13 +451,40 @@ curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
 
 ---
 
+### Command 22 — verify full observability stack
+
+Run after command 14 (or anytime) to confirm runner, Loki, Tempo, Prometheus, Collector, and Grafana are healthy:
+
+```bash
+git pull
+chmod +x scripts/verify-observability.sh
+./scripts/verify-observability.sh
+```
+
+**Success:** `All checks passed` plus Grafana URL.
+
+**Re-deploy backend only** (refresh Loki/Tempo/Prometheus/Collector, then Grafana datasources):
+
+```bash
+git pull
+./scripts/deploy-observability-stack.sh --build
+export FORCE_CONTAINER_DEPLOY=true
+./scripts/bootstrap-azure.sh --grafana-only
+./scripts/verify-observability.sh
+```
+
+---
+
 ## Scripts (all in repo)
 
 | Script | Purpose |
 |---|---|
 | `scripts/cloudshell-prepare.sh` | Copy config + chmod |
 | `scripts/bootstrap-azure.sh` | Create Azure resources |
-| `scripts/cloudshell-deploy.sh` | Deploy app from Cloud Shell |
+| `scripts/cloudshell-deploy.sh` | Full stack: runner + Loki/Tempo/Prometheus/Collector + Grafana |
+| `scripts/cloudshell-setup-complete.sh` | Same as cloudshell-deploy (orchestrator) |
+| `scripts/deploy-observability-stack.sh` | Loki + Tempo + Prometheus + OTel Collector only |
+| `scripts/verify-observability.sh` | Health-check runner, backend, Grafana |
 | `scripts/fix-grafana.sh` | Diagnose + repair Grafana 404 |
 | `scripts/fix-grafana-acr.sh` | Fix Grafana ACR 401 / image pull (no delete/recreate) |
 | `scripts/fix-runner.sh` | Fix runner 404 / ACR pull (recreate with admin auth) |

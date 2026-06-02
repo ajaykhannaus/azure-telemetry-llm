@@ -1,0 +1,62 @@
+# OTel Collector Container App with ACR admin auth (sandbox).
+location: __LOCATION__
+properties:
+  managedEnvironmentId: __MANAGED_ENV_ID__
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: false
+      targetPort: 4317
+      exposedPort: 4317
+      transport: http2
+      additionalPortMappings:
+        - targetPort: 4318
+          exposedPort: 4318
+          external: false
+        - targetPort: 8888
+          exposedPort: 8888
+          external: false
+        - targetPort: 13133
+          exposedPort: 13133
+          external: false
+    registries:
+      - server: __ACR_LOGIN_SERVER__
+        username: __ACR_USERNAME__
+        passwordSecretRef: acr-admin-password
+    secrets:
+      - name: acr-admin-password
+        value: __ACR_ADMIN_PASSWORD__
+  template:
+    containers:
+      - name: otel-collector
+        image: __IMAGE__
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        env:
+          - name: TEMPO_ENDPOINT
+            value: __TEMPO_ENDPOINT__
+          - name: LOKI_ENDPOINT
+            value: __LOKI_ENDPOINT__
+          - name: PROM_WRITE_ENDPOINT
+            value: __PROM_WRITE_ENDPOINT__
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            failureThreshold: 3
+          - type: Readiness
+            httpGet:
+              path: /
+              port: 13133
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+    scale:
+      minReplicas: 1
+      maxReplicas: 2
+identity:
+  type: SystemAssigned

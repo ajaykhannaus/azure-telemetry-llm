@@ -15,15 +15,13 @@ fi
 export ENV_FILE
 export SKIP_AZ_LOGIN=true
 
-chmod +x "$ROOT/scripts/deploy-local.sh"
+chmod +x "$ROOT/scripts/"*.sh
 
-log "Deploying from Azure Cloud Shell (no Mac required)"
+log "Full observability deploy (runner + Loki/Tempo/Prometheus/Collector + Grafana)"
 log "Using $ENV_FILE"
 
-"$ROOT/scripts/deploy-local.sh" deploy
-"$ROOT/scripts/bootstrap-azure.sh" --grafana-only
-"$ROOT/scripts/deploy-local.sh" verify
+"$ROOT/scripts/cloudshell-setup-complete.sh" --no-git-pull
 
 echo ""
-echo "Done — app is running in Azure."
+echo "Done — full observability stack is running in Azure."
 echo "Optional: download secrets with: cat .env.azure"

@@ -323,8 +323,34 @@ cmd_deploy() {
           "SCRAPE_TARGET=$fqdn" \
           "PROM_REMOTE_WRITE_URL=$PROM_REMOTE_WRITE_URL"
     fi
+  elif [[ "${DEPLOY_SANDBOX_PROMETHEUS:-true}" == "true" ]]; then
+    fqdn=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.configuration.ingress.fqdn" -o tsv)
+    acr_login="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)}"
+    log "Deploying $PROM_APP_NAME sandbox mode (scrape target: $fqdn, no AMP remote_write) ..."
+    if containerapp_exists "$PROM_APP_NAME"; then
+      if [[ "${FORCE_CONTAINER_DEPLOY:-false}" == "true" ]]; then
+        az containerapp update \
+          --name "$PROM_APP_NAME" \
+          --resource-group "$AZURE_RESOURCE_GROUP" \
+          --image "${acr_login}/prometheus-scraper:latest" \
+          --set-env-vars "SCRAPE_TARGET=$fqdn"
+      else
+        log "reuse $PROM_APP_NAME — skipping deploy"
+      fi
+    else
+      az containerapp create \
+        --name "$PROM_APP_NAME" \
+        --resource-group "$AZURE_RESOURCE_GROUP" \
+        --environment "$CAE_NAME" \
+        --image "${acr_login}/prometheus-scraper:latest" \
+        --ingress internal --target-port 9090 \
+        --min-replicas 1 --max-replicas 1 \
+        --cpu 0.25 --memory 0.5Gi \
+        --env-vars "SCRAPE_TARGET=$fqdn"
+    fi
   else
-    log "Skipping $PROM_APP_NAME — PROM_REMOTE_WRITE_URL not set in .env"
+    log "Skipping $PROM_APP_NAME — PROM_REMOTE_WRITE_URL not set (run deploy-observability-stack.sh for full stack)"
   fi
 
   log "Deploy complete."

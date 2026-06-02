@@ -3,7 +3,11 @@
 # then exec the real Prometheus binary.
 set -e
 
-CONFIG=/etc/prometheus/prometheus.yml
+if [ -n "$PROM_REMOTE_WRITE_URL" ]; then
+  CONFIG=/etc/prometheus/prometheus.yml
+else
+  CONFIG=/etc/prometheus/prometheus-sandbox.yml
+fi
 
 if [ -n "$SCRAPE_TARGET" ]; then
   sed -i "s|__SCRAPE_TARGET__|${SCRAPE_TARGET}|g" "$CONFIG"

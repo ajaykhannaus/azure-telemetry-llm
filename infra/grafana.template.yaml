@@ -46,6 +46,10 @@ properties:
             value: "false"
           - name: PROMETHEUS_URL
             value: __PROMETHEUS_URL__
+          - name: LOKI_URL
+            value: __LOKI_URL__
+          - name: TEMPO_URL
+            value: __TEMPO_URL__
         probes:
           # Azure limits: initialDelaySeconds 0–60, failureThreshold 1–30.
           - type: Startup

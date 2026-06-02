@@ -46,6 +46,10 @@ properties:
             secretRef: eventhub-namespace
           - name: EVENTHUB_CONNECTION_STRING
             secretRef: eventhub-connection-string
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: __OTEL_ENDPOINT__
+          - name: OTEL_EXPORTER_OTLP_INSECURE
+            value: "true"
         probes:
           - type: Liveness
             httpGet:

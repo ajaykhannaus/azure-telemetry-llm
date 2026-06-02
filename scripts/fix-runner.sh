@@ -76,12 +76,15 @@ runner_serving() {
 }
 
 render_runner_yaml() {
-  local dest=$1 env_id user pass eh_conn
+  local dest=$1 env_id user pass eh_conn otel_ep domain
   env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
   az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null || true
   user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
   pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
   eh_conn="$EVENTHUB_CONNECTION_STRING"
+  domain=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query properties.defaultDomain -o tsv)
+  otel_ep="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://${OTEL_APP_NAME:-otel-collector-dev}.internal.${domain}:4317}"
   awk -v loc="$AZURE_LOCATION" \
       -v env_id="$env_id" \
       -v acr_server="$ACR_LOGIN_SERVER" \
@@ -90,6 +93,7 @@ render_runner_yaml() {
       -v image="${ACR_LOGIN_SERVER}/ai-telemetry-runner:latest" \
       -v eh_ns="$EVENTHUB_NAMESPACE" \
       -v eh_conn="$eh_conn" \
+      -v otel_ep="$otel_ep" \
       '{
         gsub(/__LOCATION__/, loc)
         gsub(/__MANAGED_ENV_ID__/, env_id)
@@ -99,6 +103,7 @@ render_runner_yaml() {
         gsub(/__IMAGE__/, image)
         gsub(/__EVENTHUB_NAMESPACE__/, eh_ns)
         gsub(/__EVENTHUB_CONNECTION_STRING__/, eh_conn)
+        gsub(/__OTEL_ENDPOINT__/, otel_ep)
         print
       }' "$ROOT/infra/runner-acr-admin.template.yaml" > "$dest"
 }

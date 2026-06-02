@@ -100,6 +100,9 @@ APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
 PROM_APP_NAME="${PROM_APP_NAME:-prometheus-scraper-dev}"
 GRAFANA_NAME="${GRAFANA_NAME:-grafana-telemetry-dev}"
 GRAFANA_APP_NAME="${GRAFANA_APP_NAME:-grafana-telemetry-dev}"
+LOKI_APP_NAME="${LOKI_APP_NAME:-loki-telemetry-dev}"
+TEMPO_APP_NAME="${TEMPO_APP_NAME:-tempo-telemetry-dev}"
+OTEL_APP_NAME="${OTEL_APP_NAME:-otel-collector-dev}"
 PROM_WS="${PROM_WS:-telemetry-prometheus-dev}"
 EH_NS="${EH_NS:-evhns-telemetry-devaj}"
 EH_NAME="${EVENTHUB_NAME:-ai-telemetry-events}"
@@ -545,7 +548,7 @@ write_grafana_env() {
 }
 
 render_grafana_acr_admin_yaml() {
-  local dest=$1 prom_url=$2 grafana_pass=$3 env_id=$4 grafana_image=$5
+  local dest=$1 prom_url=$2 loki_url=$3 tempo_url=$4 grafana_pass=$5 env_id=$6 grafana_image=$7
   local user pass
   log "grafana: render ACR-admin YAML (secrets + registry in one create)"
   if ! az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null; then
@@ -562,6 +565,8 @@ render_grafana_acr_admin_yaml() {
       -v acr_pass="$pass" \
       -v image="$grafana_image" \
       -v prom_url="$prom_url" \
+      -v loki_url="$loki_url" \
+      -v tempo_url="$tempo_url" \
       -v grafana_pass="$grafana_pass" \
       '{
         gsub(/__LOCATION__/, loc)
@@ -571,6 +576,8 @@ render_grafana_acr_admin_yaml() {
         gsub(/__ACR_ADMIN_PASSWORD__/, acr_pass)
         gsub(/__IMAGE__/, image)
         gsub(/__PROMETHEUS_URL__/, prom_url)
+        gsub(/__LOKI_URL__/, loki_url)
+        gsub(/__TEMPO_URL__/, tempo_url)
         gsub(/__GRAFANA_ADMIN_PASSWORD__/, grafana_pass)
         print
       }' "$ROOT/infra/grafana-acr-admin.template.yaml" > "$dest"
@@ -580,16 +587,41 @@ render_grafana_acr_admin_yaml() {
 }
 
 render_grafana_standard_yaml() {
-  local dest=$1 prom_url=$2 grafana_pass=$3 env_id=$4 grafana_image=$5
+  local dest=$1 prom_url=$2 loki_url=$3 tempo_url=$4 grafana_pass=$5 env_id=$6 grafana_image=$7
   sed \
     -e "s|__LOCATION__|${AZURE_LOCATION}|g" \
     -e "s|__MANAGED_ENV_ID__|${env_id}|g" \
     -e "s|__ACR_LOGIN_SERVER__|${ACR_LOGIN_SERVER}|g" \
     -e "s|__IMAGE__|${grafana_image}|g" \
     -e "s|__PROMETHEUS_URL__|${prom_url}|g" \
+    -e "s|__LOKI_URL__|${loki_url}|g" \
+    -e "s|__TEMPO_URL__|${tempo_url}|g" \
     -e "s|__GRAFANA_ADMIN_PASSWORD__|${grafana_pass}|g" \
     "$ROOT/infra/grafana.template.yaml" > "$dest"
   validate_grafana_yaml "$dest"
+}
+
+resolve_grafana_datasource_urls() {
+  local prom_fqdn runner_fqdn loki_fqdn tempo_fqdn
+  prom_fqdn=$(containerapp_fqdn "$PROM_APP_NAME")
+  runner_fqdn=$(containerapp_fqdn "$APP_NAME")
+  loki_fqdn=$(containerapp_fqdn "$LOKI_APP_NAME")
+  tempo_fqdn=$(containerapp_fqdn "$TEMPO_APP_NAME")
+
+  GRAFANA_PROM_URL="${PROMETHEUS_URL:-}"
+  [[ -z "$GRAFANA_PROM_URL" && -n "$prom_fqdn" ]] && GRAFANA_PROM_URL="https://${prom_fqdn}"
+  [[ -z "$GRAFANA_PROM_URL" && -n "$runner_fqdn" ]] && GRAFANA_PROM_URL="https://${runner_fqdn}"
+  [[ -z "$GRAFANA_PROM_URL" ]] && GRAFANA_PROM_URL="http://prometheus:9090"
+
+  GRAFANA_LOKI_URL="${LOKI_URL:-}"
+  [[ -z "$GRAFANA_LOKI_URL" && -n "$loki_fqdn" ]] && GRAFANA_LOKI_URL="https://${loki_fqdn}"
+  [[ -z "$GRAFANA_LOKI_URL" ]] && GRAFANA_LOKI_URL="http://loki:3100"
+
+  GRAFANA_TEMPO_URL="${TEMPO_URL:-}"
+  [[ -z "$GRAFANA_TEMPO_URL" && -n "$tempo_fqdn" ]] && GRAFANA_TEMPO_URL="https://${tempo_fqdn}"
+  [[ -z "$GRAFANA_TEMPO_URL" ]] && GRAFANA_TEMPO_URL="http://tempo:3200"
+
+  log "grafana datasources: prom=$GRAFANA_PROM_URL loki=$GRAFANA_LOKI_URL tempo=$GRAFANA_TEMPO_URL"
 }
 
 deploy_grafana() {
@@ -613,12 +645,11 @@ deploy_grafana() {
     log "WARN: $GRAFANA_APP_NAME is Running in Azure but returns 404 — redeploying"
   fi
 
-  local prom_fqdn prom_url runner_fqdn env_id rendered
-  prom_fqdn=$(containerapp_fqdn "$PROM_APP_NAME")
-  runner_fqdn=$(containerapp_fqdn "$APP_NAME")
-  prom_url="http://prometheus:9090"
-  [[ -n "$prom_fqdn" ]] && prom_url="https://${prom_fqdn}"
-  [[ -z "$prom_fqdn" && -n "$runner_fqdn" ]] && prom_url="https://${runner_fqdn}"
+  local prom_url loki_url tempo_url env_id rendered
+  resolve_grafana_datasource_urls
+  prom_url="$GRAFANA_PROM_URL"
+  loki_url="$GRAFANA_LOKI_URL"
+  tempo_url="$GRAFANA_TEMPO_URL"
   env_id=$(az containerapp env show \
     --name "$CAE_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -631,17 +662,17 @@ deploy_grafana() {
   fi
 
   if containerapp_exists "$GRAFANA_APP_NAME"; then
-    render_grafana_standard_yaml "$rendered" "$prom_url" "$admin_pass" "$env_id" "$grafana_image"
+    render_grafana_standard_yaml "$rendered" "$prom_url" "$loki_url" "$tempo_url" "$admin_pass" "$env_id" "$grafana_image"
     log "grafana: update $GRAFANA_APP_NAME (not serving or forced)"
     ensure_grafana_acr_pull
     apply_grafana_yaml "$rendered"
   elif [[ "${GRAFANA_ACR_USE_ADMIN:-true}" == "true" ]]; then
-    render_grafana_acr_admin_yaml "$rendered" "$prom_url" "$admin_pass" "$env_id" "$grafana_image" \
+    render_grafana_acr_admin_yaml "$rendered" "$prom_url" "$loki_url" "$tempo_url" "$admin_pass" "$env_id" "$grafana_image" \
       || { log "ERROR: failed to render ACR-admin YAML"; return 1; }
     log "grafana: create $GRAFANA_APP_NAME (ACR admin in YAML, blocking create)"
     create_grafana_app "$rendered" true
   else
-    render_grafana_standard_yaml "$rendered" "$prom_url" "$admin_pass" "$env_id" "$grafana_image"
+    render_grafana_standard_yaml "$rendered" "$prom_url" "$loki_url" "$tempo_url" "$admin_pass" "$env_id" "$grafana_image"
     log "grafana: create $GRAFANA_APP_NAME"
     create_grafana_app "$rendered"
     wait_for_grafana_identity "$GRAFANA_APP_NAME" || true

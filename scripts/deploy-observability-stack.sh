@@ -1,0 +1,342 @@
+#!/usr/bin/env bash
+# Deploy Loki + Tempo + OTel Collector + Prometheus scraper on Azure Container Apps.
+# Wires runner OTLP export and writes datasource URLs to .env.azure for Grafana.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE="${ENV_FILE:-$ROOT/.env.azure}"
+SKIP_PULL=false
+BUILD_IMAGES=false
+SKIP_RUNNER_OTLP=false
+
+usage() {
+  cat <<EOF
+Usage: $0 [--build] [--no-git-pull] [--skip-runner-otlp]
+
+  Deploys the full observability backend in the Container Apps environment:
+    Loki → logs store
+    Tempo → traces store
+    Prometheus scraper → metrics store (sandbox mode, no AMP)
+    OTel Collector → receives OTLP from runner (logs/traces/metrics)
+    Runner OTLP env → collector (unless --skip-runner-otlp)
+
+  Requires .env.azure from bootstrap-azure.sh and a healthy runner FQDN for Prometheus scrape.
+
+  --build   Force rebuild tempo/collector/prometheus images in ACR
+EOF
+}
+
+for arg in "$@"; do
+  case "$arg" in
+    --build) BUILD_IMAGES=true ;;
+    --no-git-pull) SKIP_PULL=true ;;
+    --skip-runner-otlp) SKIP_RUNNER_OTLP=true ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown arg: $arg" >&2; usage >&2; exit 1 ;;
+  esac
+done
+
+log() { echo "[obs-stack] $*"; }
+
+if [[ "$SKIP_PULL" != "true" && -d "$ROOT/.git" ]]; then
+  log "Updating repo..."
+  git -C "$ROOT" pull --ff-only origin master 2>/dev/null \
+    || git -C "$ROOT" pull --ff-only origin main 2>/dev/null \
+    || log "WARN: git pull failed"
+fi
+
+[[ -f "$ENV_FILE" ]] || { log "ERROR: Missing $ENV_FILE — run ./scripts/bootstrap-azure.sh first"; exit 1; }
+
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+
+: "${AZURE_RESOURCE_GROUP:?Set AZURE_RESOURCE_GROUP in $ENV_FILE}"
+: "${AZURE_SUBSCRIPTION_ID:?Set AZURE_SUBSCRIPTION_ID in $ENV_FILE}"
+
+ACR_NAME="${ACR_NAME:-acrtelemetrydevaj}"
+CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
+APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
+PROM_APP_NAME="${PROM_APP_NAME:-prometheus-scraper-dev}"
+LOKI_APP_NAME="${LOKI_APP_NAME:-loki-telemetry-dev}"
+TEMPO_APP_NAME="${TEMPO_APP_NAME:-tempo-telemetry-dev}"
+OTEL_APP_NAME="${OTEL_APP_NAME:-otel-collector-dev}"
+AZURE_LOCATION="${AZURE_LOCATION:-eastus}"
+
+az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+az extension add --name containerapp --upgrade --yes --output none 2>/dev/null || true
+
+ACR_LOGIN_SERVER="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" \
+  --resource-group "$AZURE_RESOURCE_GROUP" --query loginServer -o tsv 2>/dev/null \
+  || az acr show --name "$ACR_NAME" --query loginServer -o tsv)}"
+
+cae_domain() {
+  az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query properties.defaultDomain -o tsv
+}
+
+internal_host() {
+  echo "${1}.internal.$(cae_domain)"
+}
+
+app_fqdn() {
+  az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true
+}
+
+containerapp_exists() {
+  az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1
+}
+
+acr_image_exists() {
+  az acr repository show --name "$ACR_NAME" --image "$1" >/dev/null 2>&1
+}
+
+build_if_needed() {
+  local tag=$1 dockerfile=$2
+  if [[ "$BUILD_IMAGES" == "true" ]] || ! acr_image_exists "$tag"; then
+    log "Building $ACR_NAME/$tag ..."
+    az acr build --registry "$ACR_NAME" --platform linux/amd64 \
+      --image "$tag" -f "$dockerfile" "$ROOT"
+  else
+    log "Reuse ACR image $tag"
+  fi
+}
+
+render_loki_yaml() {
+  local dest=$1 env_id
+  env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+  sed \
+    -e "s|__LOCATION__|${AZURE_LOCATION}|g" \
+    -e "s|__MANAGED_ENV_ID__|${env_id}|g" \
+    "$ROOT/infra/loki.template.yaml" > "$dest"
+}
+
+render_acr_admin_yaml() {
+  local template=$1 dest=$2 image=$3
+  shift 3
+  local env_id user pass
+  env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+  az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null || true
+  user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
+  pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
+  awk -v loc="$AZURE_LOCATION" \
+      -v env_id="$env_id" \
+      -v acr_server="$ACR_LOGIN_SERVER" \
+      -v acr_user="$user" \
+      -v acr_pass="$pass" \
+      -v image="$image" \
+      "$@" \
+      '{
+        gsub(/__LOCATION__/, loc)
+        gsub(/__MANAGED_ENV_ID__/, env_id)
+        gsub(/__ACR_LOGIN_SERVER__/, acr_server)
+        gsub(/__ACR_USERNAME__/, acr_user)
+        gsub(/__ACR_ADMIN_PASSWORD__/, acr_pass)
+        gsub(/__IMAGE__/, image)
+        print
+      }' "$template" > "$dest"
+}
+
+deploy_yaml_app() {
+  local name=$1 yaml=$2
+  if containerapp_exists "$name"; then
+    log "Updating $name ..."
+    az containerapp update --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" --yaml "$yaml"
+  else
+    log "Creating $name ..."
+    az containerapp create --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" --yaml "$yaml"
+  fi
+}
+
+wait_for_app() {
+  local name=$1 check_cmd=$2 label=$3
+  local i
+  log "Waiting for $label ($name) ..."
+  for i in $(seq 1 30); do
+    if eval "$check_cmd"; then
+      log "$label ready"
+      return 0
+    fi
+    (( i % 4 == 0 )) && log "  still waiting ($i/30) ..."
+    sleep 10
+  done
+  log "WARN: $label not confirmed ready"
+  return 1
+}
+
+write_datasource_env() {
+  local prom_url loki_url tempo_url otel_endpoint
+  prom_url="https://$(app_fqdn "$PROM_APP_NAME")"
+  loki_url="https://$(app_fqdn "$LOKI_APP_NAME")"
+  tempo_url="https://$(app_fqdn "$TEMPO_APP_NAME")"
+  otel_endpoint="http://$(internal_host "$OTEL_APP_NAME"):4317"
+
+  log "Datasource URLs:"
+  log "  PROMETHEUS_URL=$prom_url"
+  log "  LOKI_URL=$loki_url"
+  log "  TEMPO_URL=$tempo_url"
+  log "  OTEL_EXPORTER_OTLP_ENDPOINT=$otel_endpoint"
+
+  upsert_env() {
+    local key=$1 val=$2
+    if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
+      sed -i "s|^${key}=.*|${key}=${val}|" "$ENV_FILE"
+    else
+      echo "${key}=${val}" >> "$ENV_FILE"
+    fi
+  }
+
+  upsert_env LOKI_APP_NAME "$LOKI_APP_NAME"
+  upsert_env TEMPO_APP_NAME "$TEMPO_APP_NAME"
+  upsert_env OTEL_APP_NAME "$OTEL_APP_NAME"
+  upsert_env PROMETHEUS_URL "$prom_url"
+  upsert_env LOKI_URL "$loki_url"
+  upsert_env TEMPO_URL "$tempo_url"
+  upsert_env OTEL_EXPORTER_OTLP_ENDPOINT "$otel_endpoint"
+}
+
+# ── Runner FQDN for Prometheus scrape ────────────────────────────────────────
+
+RUNNER_FQDN=$(app_fqdn "$APP_NAME")
+if [[ -z "$RUNNER_FQDN" ]]; then
+  log "ERROR: Runner $APP_NAME has no ingress FQDN — run ./scripts/fix-runner.sh first"
+  exit 1
+fi
+
+if ! curl -sf --max-time 15 "https://${RUNNER_FQDN}/metrics" 2>/dev/null | grep -q ai_gateway; then
+  log "WARN: Runner not serving /metrics yet — Prometheus will scrape once runner is healthy"
+fi
+
+# ── 1. Loki (public image) ───────────────────────────────────────────────────
+
+log "=== Loki ==="
+loki_yaml="$ROOT/infra/loki.rendered.yaml"
+render_loki_yaml "$loki_yaml"
+deploy_yaml_app "$LOKI_APP_NAME" "$loki_yaml"
+rm -f "$loki_yaml"
+wait_for_app "$LOKI_APP_NAME" \
+  "curl -sf --max-time 10 \"https://$(app_fqdn "$LOKI_APP_NAME")/ready\" >/dev/null" \
+  "Loki" || true
+
+# ── 2. Tempo (ACR image + admin) ─────────────────────────────────────────────
+
+log "=== Tempo ==="
+build_if_needed "tempo:latest" "$ROOT/Dockerfile.tempo"
+tempo_yaml="$ROOT/infra/tempo.rendered.yaml"
+render_acr_admin_yaml "$ROOT/infra/tempo-acr-admin.template.yaml" "$tempo_yaml" \
+  "${ACR_LOGIN_SERVER}/tempo:latest"
+deploy_yaml_app "$TEMPO_APP_NAME" "$tempo_yaml"
+rm -f "$tempo_yaml"
+wait_for_app "$TEMPO_APP_NAME" \
+  "curl -sf --max-time 10 \"https://$(app_fqdn "$TEMPO_APP_NAME")/ready\" >/dev/null" \
+  "Tempo" || true
+
+# ── 3. Prometheus scraper (sandbox, no AMP) ──────────────────────────────────
+
+log "=== Prometheus scraper ==="
+build_if_needed "prometheus-scraper:latest" "$ROOT/Dockerfile.prometheus"
+
+if containerapp_exists "$PROM_APP_NAME"; then
+  log "Updating $PROM_APP_NAME scrape target ..."
+  az containerapp update \
+    --name "$PROM_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --image "${ACR_LOGIN_SERVER}/prometheus-scraper:latest" \
+    --set-env-vars "SCRAPE_TARGET=${RUNNER_FQDN}"
+else
+  log "Creating $PROM_APP_NAME ..."
+  az containerapp create \
+    --name "$PROM_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --environment "$CAE_NAME" \
+    --image "${ACR_LOGIN_SERVER}/prometheus-scraper:latest" \
+    --registry-server "$ACR_LOGIN_SERVER" \
+    --registry-username "$(az acr credential show --name "$ACR_NAME" --query username -o tsv)" \
+    --registry-password "$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)" \
+    --ingress internal --target-port 9090 \
+    --min-replicas 1 --max-replicas 1 \
+    --cpu 0.25 --memory 0.5Gi \
+    --env-vars "SCRAPE_TARGET=${RUNNER_FQDN}"
+fi
+
+PROM_FQDN=$(app_fqdn "$PROM_APP_NAME")
+wait_for_app "$PROM_APP_NAME" \
+  "curl -sf --max-time 10 \"https://${PROM_FQDN}/-/ready\" >/dev/null" \
+  "Prometheus" || true
+
+# ── 4. OTel Collector ────────────────────────────────────────────────────────
+
+log "=== OTel Collector ==="
+build_if_needed "otel-collector:latest" "$ROOT/Dockerfile.collector"
+
+domain=$(cae_domain)
+TEMPO_EP="$(internal_host "$TEMPO_APP_NAME"):4317"
+LOKI_EP="https://$(internal_host "$LOKI_APP_NAME")/loki/api/v1/push"
+PROM_EP="https://$(internal_host "$PROM_APP_NAME")/api/v1/write"
+
+otel_yaml="$ROOT/infra/otel.rendered.yaml"
+env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null || true
+user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
+pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
+awk -v loc="$AZURE_LOCATION" \
+    -v env_id="$env_id" \
+    -v acr_server="$ACR_LOGIN_SERVER" \
+    -v acr_user="$user" \
+    -v acr_pass="$pass" \
+    -v image="${ACR_LOGIN_SERVER}/otel-collector:latest" \
+    -v tempo_ep="$TEMPO_EP" \
+    -v loki_ep="$LOKI_EP" \
+    -v prom_ep="$PROM_EP" \
+    '{
+      gsub(/__LOCATION__/, loc)
+      gsub(/__MANAGED_ENV_ID__/, env_id)
+      gsub(/__ACR_LOGIN_SERVER__/, acr_server)
+      gsub(/__ACR_USERNAME__/, acr_user)
+      gsub(/__ACR_ADMIN_PASSWORD__/, acr_pass)
+      gsub(/__IMAGE__/, image)
+      gsub(/__TEMPO_ENDPOINT__/, tempo_ep)
+      gsub(/__LOKI_ENDPOINT__/, loki_ep)
+      gsub(/__PROM_WRITE_ENDPOINT__/, prom_ep)
+      print
+    }' "$ROOT/infra/otel-collector-acr-admin.template.yaml" > "$otel_yaml"
+
+deploy_yaml_app "$OTEL_APP_NAME" "$otel_yaml"
+rm -f "$otel_yaml"
+wait_for_app "$OTEL_APP_NAME" \
+  "curl -sf --max-time 10 \"https://$(app_fqdn "$OTEL_APP_NAME")/\" >/dev/null 2>&1 || \
+   curl -sf --max-time 10 \"http://$(internal_host "$OTEL_APP_NAME"):13133/\" >/dev/null" \
+  "OTel Collector" || true
+
+# ── 5. Wire runner OTLP ──────────────────────────────────────────────────────
+
+if [[ "$SKIP_RUNNER_OTLP" != "true" ]]; then
+  log "=== Runner OTLP wiring ==="
+  OTEL_ENDPOINT="http://$(internal_host "$OTEL_APP_NAME"):4317"
+  log "Setting OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_ENDPOINT on $APP_NAME"
+  az containerapp update \
+    --name "$APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --set-env-vars \
+      "OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT}" \
+      "OTEL_EXPORTER_OTLP_INSECURE=true" \
+    --output none
+fi
+
+write_datasource_env
+
+echo ""
+echo "============================================================"
+echo "  Observability stack deployed"
+echo "============================================================"
+echo "  Loki:        https://$(app_fqdn "$LOKI_APP_NAME")"
+echo "  Tempo:       https://$(app_fqdn "$TEMPO_APP_NAME")"
+echo "  Prometheus:  https://${PROM_FQDN}"
+echo "  Collector:   http://$(internal_host "$OTEL_APP_NAME"):4317 (OTLP gRPC)"
+echo ""
+echo "  Next: redeploy Grafana with datasource URLs:"
+echo "    export FORCE_CONTAINER_DEPLOY=true"
+echo "    ./scripts/bootstrap-azure.sh --grafana-only"
+echo "============================================================"
