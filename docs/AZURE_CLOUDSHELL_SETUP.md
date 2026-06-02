@@ -293,9 +293,19 @@ az containerapp replica list -n grafana-telemetry-dev -g az03-al-titan-sandbox-r
 az containerapp logs show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg --type console --tail 40
 ```
 
-### Command 19 — force recreate Grafana (404 but status shows Running)
+### Command 19 — one-command Grafana repair (404 / no replicas)
 
-`Running` in Azure can still return **404** if no healthy replica is serving traffic (often image pull or crash on start).
+Most 404s are **failed image pull from ACR** (app shows `Running` but has zero healthy replicas). This script diagnoses, rebuilds the image, recreates the app, and waits for `/api/health`.
+
+```bash
+git pull
+chmod +x scripts/fix-grafana.sh
+./scripts/fix-grafana.sh
+```
+
+**Success:** `Grafana is healthy: https://...`
+
+Manual equivalent:
 
 ```bash
 git pull
@@ -339,4 +349,5 @@ export FORCE_CONTAINER_DEPLOY=true
 | `scripts/cloudshell-prepare.sh` | Copy config + chmod |
 | `scripts/bootstrap-azure.sh` | Create Azure resources |
 | `scripts/cloudshell-deploy.sh` | Deploy app from Cloud Shell |
+| `scripts/fix-grafana.sh` | Diagnose + repair Grafana 404 |
 | `infra/adx-schema.kql` | ADX database tables |

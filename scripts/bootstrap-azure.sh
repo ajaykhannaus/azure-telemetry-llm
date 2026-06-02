@@ -149,6 +149,21 @@ ensure_grafana_acr_pull() {
     --assignee "$principal_id" \
     --role AcrPull \
     --scope "$acr_id" --output none 2>/dev/null || true
+  log "grafana: waiting 45s for AcrPull role propagation..."
+  sleep 45
+}
+
+restart_grafana_revision() {
+  local rev
+  rev=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.latestRevisionName" -o tsv 2>/dev/null || true)
+  [[ -z "$rev" ]] && return 0
+  log "grafana: restart revision $rev"
+  az containerapp revision restart \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --revision "$rev" \
+    --output none 2>/dev/null || true
 }
 
 wait_for_grafana() {
@@ -245,6 +260,12 @@ deploy_grafana() {
     -e "s|__GRAFANA_ADMIN_PASSWORD__|${admin_pass}|g" \
     "$ROOT/infra/grafana.template.yaml" > "$rendered"
 
+  if ! acr_image_exists "grafana:latest"; then
+    log "ERROR: $ACR_LOGIN_SERVER/grafana:latest missing — run: FORCE_IMAGE_BUILD=true ./scripts/bootstrap-azure.sh --grafana-only"
+    rm -f "$rendered"
+    return 1
+  fi
+
   if containerapp_exists "$GRAFANA_APP_NAME"; then
     log "grafana: update $GRAFANA_APP_NAME (not serving or forced)"
     ensure_grafana_acr_pull
@@ -252,6 +273,7 @@ deploy_grafana() {
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --yaml "$rendered" --output none
+    restart_grafana_revision
   else
     log "grafana: create $GRAFANA_APP_NAME"
     az containerapp create \
@@ -263,6 +285,7 @@ deploy_grafana() {
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --yaml "$rendered" --output none
+    restart_grafana_revision
   fi
 
   GRAFANA_URL="https://$(containerapp_fqdn "$GRAFANA_APP_NAME")"
@@ -272,8 +295,22 @@ deploy_grafana() {
 }
 
 if [[ "$GRAFANA_ONLY" == "true" ]]; then
+  if [[ "${GRAFANA_RECREATE:-false}" == "true" ]] && containerapp_exists "$GRAFANA_APP_NAME"; then
+    log "grafana-only: delete $GRAFANA_APP_NAME before rebuild"
+    az containerapp delete \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --yes --output none
+  fi
   if [[ "$BUILD_IMAGES" == "true" ]]; then
-    build_image_if_missing "grafana:latest" "$ROOT/Dockerfile.grafana" "$GRAFANA_APP_NAME"
+    if [[ "${FORCE_IMAGE_BUILD:-false}" == "true" ]] || [[ "${GRAFANA_RECREATE:-false}" == "true" ]] \
+        || ! acr_image_exists "grafana:latest"; then
+      log "building $ACR_NAME/grafana:latest"
+      az acr build --registry "$ACR_NAME" --platform linux/amd64 \
+        --image "grafana:latest" -f "$ROOT/Dockerfile.grafana" "$ROOT"
+    else
+      build_image_if_missing "grafana:latest" "$ROOT/Dockerfile.grafana" "$GRAFANA_APP_NAME"
+    fi
   fi
   log "self-hosted grafana (grafana-only)"
   deploy_grafana
