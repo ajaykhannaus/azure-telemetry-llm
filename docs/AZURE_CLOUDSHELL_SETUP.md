@@ -254,7 +254,8 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 | Deploy fails on Event Hub | Re-run command 11 |
 | `SecretRef 'eventhub-namespace' not found` | `git pull` then re-run command 14 |
 | Deploy seems slow (10–15 min) | Normal on first create; use command 14b in a second tab |
-| Grafana **404** / app stopped | Commands 16–20 below — `Running` ≠ serving traffic |
+| Grafana **404** / app stopped | Command 19 (`fix-grafana.sh`) or 16–20 |
+| `AuthorizationFailed` / async hash on create | Close other Cloud Shell tabs; wait 2 min; re-run command 19 |
 
 ---
 
@@ -304,6 +305,8 @@ chmod +x scripts/fix-grafana.sh
 ```
 
 **Success:** `Grafana is healthy: https://...`
+
+**If you see `AuthorizationFailed` / `content hash`:** Azure is still finishing a delete from another tab or an earlier run. Close other Cloud Shell tabs, wait **2 minutes**, then run command 19 again (do not run deploy in parallel).
 
 Manual equivalent:
 

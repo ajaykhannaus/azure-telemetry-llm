@@ -121,6 +121,60 @@ containerapp_exists() {
   az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1
 }
 
+wait_for_containerapp_deleted() {
+  local name=$1
+  local i
+  for i in $(seq 1 36); do
+    if ! containerapp_exists "$name"; then
+      log "grafana: delete complete for $name"
+      return 0
+    fi
+    log "grafana: waiting for delete to finish ($i/36)..."
+    sleep 10
+  done
+  log "ERROR: timed out waiting for $name to be deleted"
+  return 1
+}
+
+delete_grafana_app() {
+  [[ "${GRAFANA_RECREATE:-false}" == "true" ]] || return 0
+  containerapp_exists "$GRAFANA_APP_NAME" || return 0
+  log "grafana: delete $GRAFANA_APP_NAME (GRAFANA_RECREATE=true)"
+  az containerapp delete \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --yes --output none
+  wait_for_containerapp_deleted "$GRAFANA_APP_NAME"
+  log "grafana: pausing 30s for Azure async cleanup"
+  sleep 30
+}
+
+create_grafana_app() {
+  local rendered=$1
+  local attempt out
+  for attempt in 1 2 3 4 5 6; do
+    if out=$(az containerapp create \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --yaml "$rendered" 2>&1); then
+      return 0
+    fi
+    if echo "$out" | grep -qiE 'AuthorizationFailed|async operation|content hash'; then
+      log "grafana: create attempt $attempt failed (Azure async conflict) — retry in 45s"
+      sleep 45
+      if containerapp_exists "$GRAFANA_APP_NAME"; then
+        log "grafana: app exists now — will update instead"
+        return 0
+      fi
+    else
+      echo "$out" >&2
+      return 1
+    fi
+  done
+  log "ERROR: grafana create failed after $attempt attempts"
+  return 1
+}
+
 containerapp_running() {
   [[ "$(az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" \
     --query "properties.runningStatus" -o tsv 2>/dev/null || echo "Missing")" == "Running" ]]
@@ -219,12 +273,8 @@ deploy_grafana() {
   local grafana_image="$ACR_LOGIN_SERVER/grafana:latest"
   local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
 
-  if [[ "${GRAFANA_RECREATE:-false}" == "true" ]] && containerapp_exists "$GRAFANA_APP_NAME"; then
-    log "grafana: delete $GRAFANA_APP_NAME (GRAFANA_RECREATE=true)"
-    az containerapp delete \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yes --output none
+  if [[ "${GRAFANA_SKIP_DELETE:-false}" != "true" ]]; then
+    delete_grafana_app
   fi
 
   if containerapp_exists "$GRAFANA_APP_NAME" \
@@ -276,10 +326,7 @@ deploy_grafana() {
     restart_grafana_revision
   else
     log "grafana: create $GRAFANA_APP_NAME"
-    az containerapp create \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered" --output none
+    create_grafana_app "$rendered"
     ensure_grafana_acr_pull
     az containerapp update \
       --name "$GRAFANA_APP_NAME" \
@@ -295,13 +342,8 @@ deploy_grafana() {
 }
 
 if [[ "$GRAFANA_ONLY" == "true" ]]; then
-  if [[ "${GRAFANA_RECREATE:-false}" == "true" ]] && containerapp_exists "$GRAFANA_APP_NAME"; then
-    log "grafana-only: delete $GRAFANA_APP_NAME before rebuild"
-    az containerapp delete \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yes --output none
-  fi
+  delete_grafana_app
+  export GRAFANA_SKIP_DELETE=true
   if [[ "$BUILD_IMAGES" == "true" ]]; then
     if [[ "${FORCE_IMAGE_BUILD:-false}" == "true" ]] || [[ "${GRAFANA_RECREATE:-false}" == "true" ]] \
         || ! acr_image_exists "grafana:latest"; then
