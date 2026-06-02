@@ -162,6 +162,31 @@ wait_for_containerapp_deleted() {
   return 1
 }
 
+wait_for_containerapp_provisioned() {
+  local name=$1
+  local i state
+  for i in $(seq 1 60); do
+    state=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.provisioningState" -o tsv 2>/dev/null || echo "Missing")
+    case "$state" in
+      Succeeded)
+        log "grafana: provisioning complete for $name"
+        return 0
+        ;;
+      Failed)
+        log "ERROR: provisioning failed for $name"
+        return 1
+        ;;
+      *)
+        log "grafana: waiting for provisioning ($i/60, state=${state:-unknown})..."
+        sleep 10
+        ;;
+    esac
+  done
+  log "WARN: timed out waiting for $name provisioning (last state=$state)"
+  return 1
+}
+
 delete_grafana_app() {
   [[ "${GRAFANA_RECREATE:-false}" == "true" ]] || return 0
   containerapp_exists "$GRAFANA_APP_NAME" || return 0
@@ -205,21 +230,26 @@ create_grafana_app() {
 
 apply_grafana_update() {
   local rendered=$1
-  local out
-  if out=$(az containerapp update \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --yaml "$rendered" \
-    --no-wait 2>&1); then
-    log "grafana: update accepted (provisioning in background)"
-    return 0
-  fi
-  if echo "$out" | grep -qiE 'Operation expired|already in progress'; then
-    log "WARN: grafana update reported '$out' — continuing to poll /api/health"
-    return 0
-  fi
-  echo "$out" >&2
-  return 1
+  local attempt out
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if out=$(az containerapp update \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --yaml "$rendered" \
+      --no-wait 2>&1); then
+      log "grafana: update accepted (provisioning in background)"
+      return 0
+    fi
+    if echo "$out" | grep -qiE 'Operation expired|already in progress|ContainerAppOperationInProgress|active provisioning operation'; then
+      log "grafana: update attempt $attempt — Azure operation in progress, retry in 30s"
+      sleep 30
+      continue
+    fi
+    echo "$out" >&2
+    return 1
+  done
+  log "WARN: grafana update still blocked after retries — continuing to poll /api/health"
+  return 0
 }
 
 containerapp_running() {
@@ -377,8 +407,9 @@ deploy_grafana() {
       containerapp_exists "$GRAFANA_APP_NAME" && break
       sleep 10
     done
+    wait_for_containerapp_provisioned "$GRAFANA_APP_NAME" || true
     ensure_grafana_acr_pull
-    apply_grafana_update "$rendered"
+    restart_grafana_revision
   fi
 
   GRAFANA_URL="https://$(containerapp_fqdn "$GRAFANA_APP_NAME")"
