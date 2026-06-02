@@ -218,24 +218,11 @@ echo "[5/5] managed identity"
 MI_PRINCIPAL_ID=""
 
 if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-  az containerapp identity assign \
-    --name "$APP_NAME" \
-    --resource-group "$RG" \
-    --system-assigned \
-    --output none
-
   MI_PRINCIPAL_ID=$(az containerapp show \
     --name "$APP_NAME" \
     --resource-group "$RG" \
-    --query identity.principalId -o tsv)
-
-  az role assignment create \
-    --assignee "$MI_PRINCIPAL_ID" \
-    --role AcrPull \
-    --scope "/subscriptions/${SUB_ID}/resourceGroups/${RG}/providers/Microsoft.ContainerRegistry/registries/${ACR_NAME}" \
-    --output none 2>/dev/null || true
-
-  echo "  $APP_NAME  principal: $MI_PRINCIPAL_ID"
+    --query identity.principalId -o tsv 2>/dev/null || true)
+  echo "  reuse $APP_NAME  principal: ${MI_PRINCIPAL_ID:-n/a}"
 else
   echo "  Container App '$APP_NAME' not deployed yet."
   echo "  Its managed identity will be created on first deploy (see .github/workflows/deploy.yml)."

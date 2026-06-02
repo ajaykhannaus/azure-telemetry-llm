@@ -98,13 +98,17 @@ cmd_provision() {
   fi
   "$ROOT/infra/bootstrap.sh" "${BOOTSTRAP_ARGS[@]}"
 
-  log "Creating Azure Managed Prometheus ($PROM_WS)..."
-  if ! az monitor account show --name "$PROM_WS" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+  log "Azure Managed Prometheus ($PROM_WS)..."
+  PROM_WS_NEW=false
+  if az monitor account show --name "$PROM_WS" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+    log "reuse $PROM_WS — skipping create"
+  else
     az monitor account create \
       --name "$PROM_WS" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --location "$AZURE_LOCATION" \
       --output none
+    PROM_WS_NEW=true
   fi
 
   PROM_WORKSPACE_ID=$(az monitor account show \
@@ -113,16 +117,23 @@ cmd_provision() {
   MANAGED_RG="MA_${PROM_WS}_${AZURE_LOCATION}_managed"
   DCR_ID=""
   DCE=""
-  for _ in $(seq 1 18); do
+  fetch_prom_remote_write() {
     DCR_ID=$(az monitor data-collection rule list \
       --resource-group "$MANAGED_RG" \
       --query "[0].immutableId" -o tsv 2>/dev/null || true)
     DCE=$(az monitor data-collection endpoint list \
       --resource-group "$MANAGED_RG" \
       --query "[0].properties.logsIngestion.endpoint" -o tsv 2>/dev/null || true)
-    [[ -n "$DCR_ID" && -n "$DCE" ]] && break
-    sleep 10
-  done
+  }
+  if [[ "$PROM_WS_NEW" == "true" ]]; then
+    for _ in $(seq 1 18); do
+      fetch_prom_remote_write
+      [[ -n "$DCR_ID" && -n "$DCE" ]] && break
+      sleep 10
+    done
+  else
+    fetch_prom_remote_write
+  fi
 
   if [[ -n "$DCR_ID" && -n "$DCE" ]]; then
     PROM_REMOTE_WRITE_URL="${DCE}/dataCollectionRules/${DCR_ID}/streamName/Microsoft-PrometheusMetrics/api/v1/write?api-version=2023-04-24"
@@ -132,22 +143,24 @@ cmd_provision() {
     PROM_REMOTE_WRITE_URL=""
   fi
 
-  log "Creating Azure Managed Grafana ($GRAFANA_NAME)..."
+  log "Azure Managed Grafana ($GRAFANA_NAME)..."
   az extension add --name amg --upgrade --yes --output none 2>/dev/null || true
-  if ! az grafana show --name "$GRAFANA_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+  if az grafana show --name "$GRAFANA_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+    log "reuse $GRAFANA_NAME — skipping provisioning"
+  else
     az grafana create \
       --name "$GRAFANA_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --location "$AZURE_LOCATION" \
       --sku Standard \
       --output none
-  fi
 
-  az grafana integrations add \
-    --name "$GRAFANA_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --workspace-id "$PROM_WORKSPACE_ID" \
-    --output none 2>/dev/null || true
+    az grafana integrations add \
+      --name "$GRAFANA_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --workspace-id "$PROM_WORKSPACE_ID" \
+      --output none 2>/dev/null || true
+  fi
 
   EH_CONN=$(az eventhubs namespace authorization-rule keys list \
     --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -257,11 +270,9 @@ cmd_deploy() {
     2>/dev/null || true
 
   if containerapp_exists "$APP_NAME"; then
-    log "Container app $APP_NAME already exists — skipping create"
-    if [[ "${SKIP_EXISTING_CONTAINERS:-false}" == "true" ]]; then
-      log "SKIP_EXISTING_CONTAINERS=true — leaving $APP_NAME unchanged"
-    else
-      log "Updating $APP_NAME ..."
+    log "reuse $APP_NAME — skipping deploy"
+    if [[ "${FORCE_CONTAINER_DEPLOY:-false}" == "true" ]]; then
+      log "FORCE_CONTAINER_DEPLOY=true — updating $APP_NAME ..."
       az containerapp update \
         --name "$APP_NAME" \
         --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -287,8 +298,8 @@ cmd_deploy() {
 
     log "Deploying $PROM_APP_NAME (scrape target: $fqdn) ..."
     if containerapp_exists "$PROM_APP_NAME"; then
-      log "Container app $PROM_APP_NAME already exists — skipping create"
-      if [[ "${SKIP_EXISTING_CONTAINERS:-false}" != "true" ]]; then
+      log "reuse $PROM_APP_NAME — skipping deploy"
+      if [[ "${FORCE_CONTAINER_DEPLOY:-false}" == "true" ]]; then
         az containerapp update \
           --name "$PROM_APP_NAME" \
           --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -296,8 +307,6 @@ cmd_deploy() {
           --set-env-vars \
             "SCRAPE_TARGET=$fqdn" \
             "PROM_REMOTE_WRITE_URL=$PROM_REMOTE_WRITE_URL"
-      else
-        log "SKIP_EXISTING_CONTAINERS=true — leaving $PROM_APP_NAME unchanged"
       fi
     else
       az containerapp create \

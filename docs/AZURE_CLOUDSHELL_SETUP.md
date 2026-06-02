@@ -181,13 +181,13 @@ Download via Cloud Shell **Download** if you want a copy for later.
 
 ## Re-run safely (containers already exist)
 
-Bootstrap and deploy **reuse** same-named resources — they do not create duplicates.
+Bootstrap and deploy **reuse** same-named resources — they do not create duplicates or redeploy existing Container Apps.
 
 | Re-run | Behavior |
 |---|---|
-| `./scripts/bootstrap-azure.sh` | Reuses ACR, Event Hubs, ADX; skips image build if `:latest` already in ACR |
-| `./scripts/cloudshell-deploy.sh` | Skips **create** if Container App exists; **updates** config |
-| Skip updates too | `export SKIP_EXISTING_CONTAINERS=true` before deploy |
+| `./scripts/bootstrap-azure.sh` | Reuses ACR, CAE, Event Hub, Prometheus workspace, Managed Grafana, ADX; skips image build if app exists or `:latest` already in ACR; skips Grafana Container App deploy if `$GRAFANA_APP_NAME` exists |
+| `./scripts/cloudshell-deploy.sh` | Skips deploy for existing `$APP_NAME` / `$PROM_APP_NAME` Container Apps |
+| Force Container App update | `export FORCE_CONTAINER_DEPLOY=true` before deploy |
 | Force image rebuild | `export FORCE_IMAGE_BUILD=true` before bootstrap |
 
 ---

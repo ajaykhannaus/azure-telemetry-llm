@@ -71,6 +71,7 @@ CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
 APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
 PROM_APP_NAME="${PROM_APP_NAME:-prometheus-scraper-dev}"
 GRAFANA_NAME="${GRAFANA_NAME:-grafana-telemetry-dev}"
+GRAFANA_APP_NAME="${GRAFANA_APP_NAME:-grafana-telemetry-dev}"
 PROM_WS="${PROM_WS:-telemetry-prometheus-dev}"
 EH_NS="${EH_NS:-evhns-telemetry-devaj}"
 EH_NAME="${EVENTHUB_NAME:-ai-telemetry-events}"
@@ -160,12 +161,16 @@ fi
 
 # Re-check: provider registration may have set this to false above.
 if [[ "$PROVISION_OBSERVABILITY" == "true" ]]; then
-  if ! az monitor account show --name "$PROM_WS" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+  PROM_WS_NEW=false
+  if az monitor account show --name "$PROM_WS" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+    log "prometheus workspace: reuse $PROM_WS — skipping create"
+  else
     az monitor account create \
       --name "$PROM_WS" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --location "$AZURE_LOCATION" \
       --output none
+    PROM_WS_NEW=true
   fi
 
   AZURE_PROM_QUERY_URL=$(az monitor account show \
@@ -178,16 +183,23 @@ if [[ "$PROVISION_OBSERVABILITY" == "true" ]]; then
   MANAGED_RG="MA_${PROM_WS}_${AZURE_LOCATION}_managed"
   DCR_ID=""
   DCE=""
-  for _ in $(seq 1 18); do
+  fetch_prom_remote_write() {
     DCR_ID=$(az monitor data-collection rule list \
       --resource-group "$MANAGED_RG" \
       --query "[0].immutableId" -o tsv 2>/dev/null || true)
     DCE=$(az monitor data-collection endpoint list \
       --resource-group "$MANAGED_RG" \
       --query "[0].properties.logsIngestion.endpoint" -o tsv 2>/dev/null || true)
-    [[ -n "$DCR_ID" && -n "$DCE" ]] && break
-    sleep 10
-  done
+  }
+  if [[ "$PROM_WS_NEW" == "true" ]]; then
+    for _ in $(seq 1 18); do
+      fetch_prom_remote_write
+      [[ -n "$DCR_ID" && -n "$DCE" ]] && break
+      sleep 10
+    done
+  else
+    fetch_prom_remote_write
+  fi
 
   if [[ -n "$DCR_ID" && -n "$DCE" ]]; then
     PROM_REMOTE_WRITE_URL="${DCE}/dataCollectionRules/${DCR_ID}/streamName/Microsoft-PrometheusMetrics/api/v1/write?api-version=2023-04-24"
@@ -196,41 +208,51 @@ if [[ "$PROVISION_OBSERVABILITY" == "true" ]]; then
   fi
 
   az extension add --name amg --upgrade --yes --output none 2>/dev/null || true
-  if ! az grafana show --name "$GRAFANA_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+  if az grafana show --name "$GRAFANA_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+    log "managed grafana: reuse $GRAFANA_NAME — skipping provisioning"
+    GRAFANA_URL=$(az grafana show --name "$GRAFANA_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.endpoint" -o tsv)
+  else
     az grafana create \
       --name "$GRAFANA_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --location "$AZURE_LOCATION" \
       --sku Standard \
       --output none
+
+    az grafana integrations add \
+      --name "$GRAFANA_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --workspace-id "$PROM_WORKSPACE_ID" \
+      --output none 2>/dev/null || true
+
+    GRAFANA_URL=$(az grafana show --name "$GRAFANA_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.endpoint" -o tsv)
   fi
-
-  az grafana integrations add \
-    --name "$GRAFANA_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --workspace-id "$PROM_WORKSPACE_ID" \
-    --output none 2>/dev/null || true
-
-  GRAFANA_URL=$(az grafana show --name "$GRAFANA_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query "properties.endpoint" -o tsv)
 fi
 
 ADX_CLUSTER_URI=""
 if [[ "$PROVISION_ADX" == "true" ]]; then
-  log "adx database"
-  chmod +x "$ROOT/infra/adx-data-connection.sh"
-  ADX_OUT=$("$ROOT/infra/adx-data-connection.sh" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --location "$AZURE_LOCATION" \
-    --cluster-name "$ADX_CLUSTER" \
-    --db-name "$ADX_DATABASE" \
-    --eventhub-ns "$EH_NS" \
-    --eventhub-name "$EH_NAME" \
-    --env "$ADX_ENV" 2>&1) || true
-  echo "$ADX_OUT"
-  ADX_CLUSTER_URI=$(echo "$ADX_OUT" | awk -F= '/^  ADX_CLUSTER_URI=/ {print $2; exit}')
-  [[ -z "$ADX_CLUSTER_URI" ]] && ADX_CLUSTER_URI=$(az kusto cluster show \
-    --name "$ADX_CLUSTER" --resource-group "$AZURE_RESOURCE_GROUP" --query uri -o tsv 2>/dev/null || true)
+  if az kusto cluster show --name "$ADX_CLUSTER" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+    log "adx: reuse $ADX_CLUSTER — skipping provisioning"
+    ADX_CLUSTER_URI=$(az kusto cluster show \
+      --name "$ADX_CLUSTER" --resource-group "$AZURE_RESOURCE_GROUP" --query uri -o tsv 2>/dev/null || true)
+  else
+    log "adx database"
+    chmod +x "$ROOT/infra/adx-data-connection.sh"
+    ADX_OUT=$("$ROOT/infra/adx-data-connection.sh" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --location "$AZURE_LOCATION" \
+      --cluster-name "$ADX_CLUSTER" \
+      --db-name "$ADX_DATABASE" \
+      --eventhub-ns "$EH_NS" \
+      --eventhub-name "$EH_NAME" \
+      --env "$ADX_ENV" 2>&1) || true
+    echo "$ADX_OUT"
+    ADX_CLUSTER_URI=$(echo "$ADX_OUT" | awk -F= '/^  ADX_CLUSTER_URI=/ {print $2; exit}')
+    [[ -z "$ADX_CLUSTER_URI" ]] && ADX_CLUSTER_URI=$(az kusto cluster show \
+      --name "$ADX_CLUSTER" --resource-group "$AZURE_RESOURCE_GROUP" --query uri -o tsv 2>/dev/null || true)
+  fi
 fi
 
 {
@@ -267,8 +289,16 @@ acr_image_exists() {
   az acr repository show --name "$ACR_NAME" --image "$1" >/dev/null 2>&1
 }
 
+containerapp_exists() {
+  az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1
+}
+
 build_image_if_missing() {
-  local tag=$1 dockerfile=$2
+  local tag=$1 dockerfile=$2 app_name=${3:-}
+  if [[ -n "$app_name" ]] && containerapp_exists "$app_name"; then
+    log "reuse $app_name — skipping $tag build"
+    return 0
+  fi
   if [[ "${FORCE_IMAGE_BUILD:-false}" != "true" ]] && acr_image_exists "$tag"; then
     log "reuse $ACR_NAME/$tag — skipping build"
     return 0
@@ -279,16 +309,36 @@ build_image_if_missing() {
 }
 
 if [[ "$BUILD_IMAGES" == "true" ]]; then
-  build_image_if_missing "ai-telemetry-runner:latest" "$ROOT/Dockerfile.runner"
-  build_image_if_missing "prometheus-scraper:latest" "$ROOT/Dockerfile.prometheus"
-  build_image_if_missing "grafana:latest" "$ROOT/Dockerfile.grafana"
+  build_image_if_missing "ai-telemetry-runner:latest" "$ROOT/Dockerfile.runner" "$APP_NAME"
+  build_image_if_missing "prometheus-scraper:latest" "$ROOT/Dockerfile.prometheus" "$PROM_APP_NAME"
+  build_image_if_missing "grafana:latest" "$ROOT/Dockerfile.grafana" "$GRAFANA_APP_NAME"
 fi
 
 # ── Self-hosted Grafana Container App ────────────────────────────────────────
+write_grafana_env() {
+  local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
+  {
+    echo "GRAFANA_APP_NAME=$GRAFANA_APP_NAME"
+    echo "GRAFANA_URL=${GRAFANA_URL:-}"
+    echo "GRAFANA_ADMIN_USER=admin"
+    echo "GRAFANA_ADMIN_PASSWORD=${admin_pass}"
+  } >> "$WRITE_ENV_FILE"
+}
+
 deploy_grafana() {
-  local grafana_app="${GRAFANA_APP_NAME:-grafana-telemetry-dev}"
   local grafana_image="$ACR_LOGIN_SERVER/grafana:latest"
   local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
+
+  if containerapp_exists "$GRAFANA_APP_NAME"; then
+    log "grafana: reuse $GRAFANA_APP_NAME — skipping deploy"
+    GRAFANA_URL=$(az containerapp show \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+    [[ -n "$GRAFANA_URL" ]] && GRAFANA_URL="https://${GRAFANA_URL}"
+    write_grafana_env
+    return 0
+  fi
 
   local prom_fqdn
   prom_fqdn=$(az containerapp show \
@@ -315,48 +365,35 @@ deploy_grafana() {
     -e "s|__GRAFANA_ADMIN_PASSWORD__|${admin_pass}|g" \
     "$ROOT/infra/grafana.template.yaml" > "$rendered"
 
-  if az containerapp show --name "$grafana_app" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
-    log "grafana: update $grafana_app"
-    az containerapp update \
-      --name "$grafana_app" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered" --output none
-  else
-    log "grafana: create $grafana_app"
-    az containerapp create \
-      --name "$grafana_app" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered" --output none
+  log "grafana: create $GRAFANA_APP_NAME"
+  az containerapp create \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --yaml "$rendered" --output none
 
-    local principal_id
-    principal_id=$(az containerapp show \
-      --name "$grafana_app" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --query identity.principalId -o tsv)
-    local acr_id
-    acr_id=$(az acr show --name "$ACR_NAME" --query id -o tsv)
-    az role assignment create \
-      --assignee "$principal_id" \
-      --role AcrPull \
-      --scope "$acr_id" --output none 2>/dev/null || true
-    az containerapp update \
-      --name "$grafana_app" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered" --output none
-  fi
+  local principal_id
+  principal_id=$(az containerapp show \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query identity.principalId -o tsv)
+  local acr_id
+  acr_id=$(az acr show --name "$ACR_NAME" --query id -o tsv)
+  az role assignment create \
+    --assignee "$principal_id" \
+    --role AcrPull \
+    --scope "$acr_id" --output none 2>/dev/null || true
+  az containerapp update \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --yaml "$rendered" --output none
 
   GRAFANA_URL=$(az containerapp show \
-    --name "$grafana_app" \
+    --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
   [[ -n "$GRAFANA_URL" ]] && GRAFANA_URL="https://${GRAFANA_URL}"
 
-  {
-    echo "GRAFANA_APP_NAME=$grafana_app"
-    echo "GRAFANA_URL=${GRAFANA_URL:-}"
-    echo "GRAFANA_ADMIN_USER=admin"
-    echo "GRAFANA_ADMIN_PASSWORD=${admin_pass}"
-  } >> "$WRITE_ENV_FILE"
+  write_grafana_env
 
   rm -f "$rendered"
 }
