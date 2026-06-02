@@ -197,31 +197,163 @@ log_grafana_deploy_status() {
 }
 
 bind_grafana_acr_registry() {
-  az containerapp registry set \
+  local out
+  if ! out=$(az containerapp registry set \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --server "$ACR_LOGIN_SERVER" \
-    --identity system \
-    --output none 2>/dev/null || true
+    --identity system 2>&1); then
+    log "WARN: registry set (managed identity) failed: $out"
+    return 1
+  fi
   log "grafana: registry auth bound ($ACR_LOGIN_SERVER → system identity)"
+  return 0
+}
+
+acr_resource_id() {
+  az acr show --name "$ACR_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query id -o tsv 2>/dev/null \
+    || az acr show --name "$ACR_NAME" --query id -o tsv
+}
+
+acr_pull_assigned() {
+  local principal_id=$1 acr_id=$2 count
+  [[ -n "$principal_id" && -n "$acr_id" ]] || return 1
+  count=$(az role assignment list --assignee-object-id "$principal_id" --scope "$acr_id" \
+    --query "[?roleDefinitionName=='AcrPull'] | length(@)" -o tsv 2>/dev/null || echo 0)
+  [[ "${count:-0}" -gt 0 ]]
+}
+
+assign_grafana_acr_pull() {
+  local principal_id=$1 acr_id=$2 out
+  if acr_pull_assigned "$principal_id" "$acr_id"; then
+    log "grafana: AcrPull already assigned for $principal_id"
+    return 0
+  fi
+  log "grafana: assigning AcrPull to identity $principal_id"
+  if ! out=$(az role assignment create \
+      --assignee-object-id "$principal_id" \
+      --assignee-principal-type ServicePrincipal \
+      --role AcrPull \
+      --scope "$acr_id" 2>&1); then
+    if echo "$out" | grep -qi 'RoleAssignmentExists'; then
+      log "grafana: AcrPull already assigned (concurrent)"
+      return 0
+    fi
+    log "ERROR: AcrPull assignment failed: $out"
+    log "  Ask an admin to run:"
+    log "  az role assignment create --assignee-object-id $principal_id --assignee-principal-type ServicePrincipal --role AcrPull --scope $acr_id"
+    return 1
+  fi
+  log "grafana: AcrPull role assignment created"
+  return 0
+}
+
+wait_for_acr_pull_propagation() {
+  local principal_id=$1 acr_id=$2 i
+  for i in $(seq 1 24); do
+    if acr_pull_assigned "$principal_id" "$acr_id"; then
+      log "grafana: AcrPull visible in RBAC ($i/24) — waiting for ACR token exchange..."
+      if (( i >= 10 )); then
+        return 0
+      fi
+    else
+      log "grafana: waiting for AcrPull to appear ($i/24)..."
+    fi
+    sleep 10
+  done
+  log "WARN: AcrPull not confirmed after 4 min"
+  return 1
+}
+
+strip_registries_from_yaml() {
+  local src=$1 dst=$2
+  awk '
+    /^    registries:/ { skip=1; next }
+    skip && /^    [a-zA-Z]/ { skip=0 }
+    skip { next }
+    { print }
+  ' "$src" > "$dst"
+}
+
+configure_grafana_acr_admin() {
+  local user pass out
+  [[ "${GRAFANA_ACR_ADMIN_FALLBACK:-true}" == "true" ]] || return 1
+  log "grafana: using ACR admin credentials (sandbox fallback)..."
+  if ! az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null; then
+    log "WARN: could not enable ACR admin user on $ACR_NAME"
+    return 1
+  fi
+  user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || true)
+  pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv 2>/dev/null || true)
+  [[ -n "$user" && -n "$pass" ]] || return 1
+  az containerapp secret set \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --secrets "acr-admin-password=$pass" \
+    --output none
+  if ! out=$(az containerapp registry set \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --server "$ACR_LOGIN_SERVER" \
+    --username "$user" \
+    --password-secret acr-admin-password 2>&1); then
+    log "ERROR: ACR admin registry set failed: $out"
+    return 1
+  fi
+  GRAFANA_REGISTRY_MODE=admin
+  log "grafana: ACR admin registry configured"
+  return 0
+}
+
+ensure_grafana_acr_pull() {
+  local principal_id acr_id
+  GRAFANA_REGISTRY_MODE=mi
+  principal_id=$(az containerapp show \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query identity.principalId -o tsv 2>/dev/null || true)
+  [[ -z "$principal_id" ]] && { log "ERROR: grafana has no managed identity yet"; return 1; }
+  acr_id=$(acr_resource_id)
+
+  if assign_grafana_acr_pull "$principal_id" "$acr_id"; then
+    wait_for_acr_pull_propagation "$principal_id" "$acr_id" || true
+    bind_grafana_acr_registry && return 0
+  fi
+
+  configure_grafana_acr_admin || return 1
+}
+
+apply_grafana_yaml() {
+  local rendered=$1 yaml_to_apply=$rendered
+  local stripped
+  if [[ "${GRAFANA_REGISTRY_MODE:-mi}" == "admin" ]]; then
+    stripped="${rendered}.no-registries"
+    strip_registries_from_yaml "$rendered" "$stripped"
+    yaml_to_apply=$stripped
+    log "grafana: applying YAML without managed-identity registry block (admin auth active)"
+  fi
+  apply_grafana_update "$yaml_to_apply"
+  [[ "$yaml_to_apply" != "$rendered" ]] && rm -f "$yaml_to_apply"
 }
 
 refresh_grafana_after_acr_pull() {
   local rendered=$1
-  local i state
-  # Do not block on provisioningState — failed image pulls keep it InProgress until AcrPull exists.
+  local i state rev
+  # YAML from create is already correct — avoid update here (re-triggers registry 401).
   for i in $(seq 1 6); do
     state=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
       --query "properties.provisioningState" -o tsv 2>/dev/null || echo "Missing")
     case "$state" in
       Succeeded|Failed) break ;;
-      *)
-        log "grafana: create finishing ($i/6, state=$state) — AcrPull assigned, will refresh revision next"
-        sleep 10
-        ;;
+      *) sleep 10 ;;
     esac
   done
-  apply_grafana_update "$rendered"
+  restart_grafana_revision
+  rev=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.latestRevisionName" -o tsv 2>/dev/null || true)
+  [[ -z "$rev" ]] && apply_grafana_yaml "$rendered"
 }
 
 delete_grafana_app() {
@@ -303,23 +435,6 @@ containerapp_serving() {
   local fqdn
   fqdn=$(containerapp_fqdn "$1")
   [[ -n "$fqdn" ]] && curl -sf --max-time 15 "https://${fqdn}/api/health" >/dev/null 2>&1
-}
-
-ensure_grafana_acr_pull() {
-  local principal_id acr_id
-  principal_id=$(az containerapp show \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query identity.principalId -o tsv 2>/dev/null || true)
-  [[ -z "$principal_id" ]] && { log "WARN: grafana has no managed identity yet"; return 0; }
-  acr_id=$(az acr show --name "$ACR_NAME" --query id -o tsv)
-  az role assignment create \
-    --assignee "$principal_id" \
-    --role AcrPull \
-    --scope "$acr_id" --output none 2>/dev/null || true
-  log "grafana: AcrPull assigned — waiting 45s for role propagation..."
-  sleep 45
-  bind_grafana_acr_registry
 }
 
 restart_grafana_revision() {
@@ -442,7 +557,7 @@ deploy_grafana() {
   if containerapp_exists "$GRAFANA_APP_NAME"; then
     log "grafana: update $GRAFANA_APP_NAME (not serving or forced)"
     ensure_grafana_acr_pull
-    apply_grafana_update "$rendered"
+    apply_grafana_yaml "$rendered"
   else
     log "grafana: create $GRAFANA_APP_NAME"
     create_grafana_app "$rendered"

@@ -307,6 +307,14 @@ chmod +x scripts/fix-grafana.sh
 
 **Success:** `Grafana is healthy: https://...`
 
+**If you see `401` / `FetchingKeyVaultSecretFailed` / `ACR token exchange` in system logs:** Grafana’s managed identity cannot pull from ACR yet. Pull latest code and re-run command 19 — it now waits for AcrPull propagation (~2 min) and falls back to ACR admin credentials in sandbox. Manual check:
+
+```bash
+PID=$(az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg --query identity.principalId -o tsv)
+ACR_ID=$(az acr show -n acrtelemetrydevaj --query id -o tsv)
+az role assignment list --assignee-object-id $PID --scope $ACR_ID -o table
+```
+
 **If you see `waiting for provisioning` for many minutes:** The old script waited for Azure before granting ACR pull access (image pull fails without it). Pull latest code — `fix-grafana.sh` now assigns AcrPull within ~1 min, then refreshes the revision.
 
 **If you see `AuthorizationFailed` / `content hash` / `ContainerAppOperationInProgress`:** Azure is still finishing a delete/create/update from this or another tab. Close other Cloud Shell tabs, wait **2 minutes**, then run command 19 again (do not run deploy in parallel).
