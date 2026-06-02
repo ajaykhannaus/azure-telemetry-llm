@@ -234,6 +234,7 @@ render_containerapp_yaml() {
       -e "s|__IMAGE__|$image|g" \
       -e "s|__EVENTHUB_NAMESPACE__|${EVENTHUB_NAMESPACE:?Set EVENTHUB_NAMESPACE in .env}|g" \
       -e "s|__EVENTHUB_CONNECTION_STRING__|${eh_conn_escaped}|g" \
+      -e "s|__EVENTHUB_NAME__|${EH_NAME}|g" \
       "$ROOT/infra/containerapp.template.yaml" > "$rendered"
 
   echo "$rendered"

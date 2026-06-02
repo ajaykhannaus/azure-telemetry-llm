@@ -47,7 +47,8 @@ properties:
             secretRef: eventhub-namespace
           - name: EVENTHUB_CONNECTION_STRING
             secretRef: eventhub-connection-string
-        probes:
+          - name: EVENTHUB_NAME
+            value: __EVENTHUB_NAME__
           - type: Liveness
             httpGet:
               path: /healthz

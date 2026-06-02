@@ -44,7 +44,7 @@ class EventHubPublisher:
     def __init__(self) -> None:
         self._producer: Any = None
         self._mock_mode = False
-        self._topic = os.getenv("EVENTHUB_NAME", "observability-events")
+        self._topic = os.getenv("EVENTHUB_NAME", "ai-telemetry-events")
         self._setup()
 
     @property

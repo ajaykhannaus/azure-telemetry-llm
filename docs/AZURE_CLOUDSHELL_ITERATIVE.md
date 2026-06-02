@@ -119,7 +119,7 @@ Run **`git pull` first**, then pick one:
 | Grafana 404 / no healthy replicas | `./scripts/fix-grafana.sh` |
 | Grafana ACR 401 / ImagePullBackOff | `./scripts/fix-grafana-acr.sh --force` |
 | Grafana still broken after ACR fix | `./scripts/fix-grafana-acr.sh --recreate` |
-| Runner 404 / no `/metrics` | `./scripts/fix-runner.sh --build` |
+| Runner 404 / no `/metrics` (40/40 polls) | `git pull` then `./scripts/fix-runner.sh --recreate --build` — see diagnostics at end |
 | `ContainerAppOperationInProgress` | Close other tabs → wait 2 min → re-run fix script |
 | Stale probe errors | `git pull` then `./scripts/fix-grafana.sh` |
 
@@ -220,7 +220,35 @@ ls -la .env.azure
 
 If bootstrap ran in a **different** Cloud Shell session or folder, `.env.azure` is only in that clone — `cd` there or re-run bootstrap in `~/observability`.
 
-### View secrets
+### Runner stuck at 40/40 polls
+
+After `fix-runner.sh` exhausts waits, read the **diagnostics block** at the end (replicas + system/console logs).
+
+| Log / symptom | Likely cause | Fix |
+|---|---|---|
+| `401` / `ImagePullBackOff` / no replicas | ACR pull failed | `./scripts/fix-runner.sh --recreate --build` |
+| `Publisher misconfigured` / Event Hub errors | Bad `.env.azure` secrets | Re-run `./scripts/bootstrap-azure.sh`, check `grep EVENTHUB .env.azure` |
+| `/metrics HTTP 404` for many minutes | Replicas not ready (probes) | `git pull` (needs `EVENTHUB_NAME` fix) + `--recreate --build` |
+| `ContainerAppOperationInProgress` | Parallel deploy in another tab | Close tabs, wait 2 min, retry |
+
+Verify Event Hub vars:
+
+```bash
+grep -E '^EVENTHUB_' .env.azure
+# expect:
+#   EVENTHUB_NAMESPACE=evhns-telemetry-devaj.servicebus.windows.net
+#   EVENTHUB_NAME=ai-telemetry-events
+#   EVENTHUB_CONNECTION_STRING=Endpoint=sb://...
+```
+
+Redeploy with latest fix:
+
+```bash
+git pull
+./scripts/fix-runner.sh --recreate --build
+```
+
+---
 
 ```bash
 cat .env.azure

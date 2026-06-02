@@ -76,12 +76,13 @@ runner_serving() {
 }
 
 render_runner_yaml() {
-  local dest=$1 env_id user pass eh_conn otel_ep domain
+  local dest=$1 env_id user pass eh_conn otel_ep domain eh_name
   env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
   az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null || true
   user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
   pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
   eh_conn="$EVENTHUB_CONNECTION_STRING"
+  eh_name="${EVENTHUB_NAME:-ai-telemetry-events}"
   domain=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
     --query properties.defaultDomain -o tsv)
   otel_ep="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://${OTEL_APP_NAME:-otel-collector-dev}.internal.${domain}:4317}"
@@ -93,6 +94,7 @@ render_runner_yaml() {
       -v image="${ACR_LOGIN_SERVER}/ai-telemetry-runner:latest" \
       -v eh_ns="$EVENTHUB_NAMESPACE" \
       -v eh_conn="$eh_conn" \
+      -v eh_name="$eh_name" \
       -v otel_ep="$otel_ep" \
       '{
         gsub(/__LOCATION__/, loc)
@@ -103,20 +105,46 @@ render_runner_yaml() {
         gsub(/__IMAGE__/, image)
         gsub(/__EVENTHUB_NAMESPACE__/, eh_ns)
         gsub(/__EVENTHUB_CONNECTION_STRING__/, eh_conn)
+        gsub(/__EVENTHUB_NAME__/, eh_name)
         gsub(/__OTEL_ENDPOINT__/, otel_ep)
         print
       }' "$ROOT/infra/runner-acr-admin.template.yaml" > "$dest"
 }
 
+diagnose_runner_failure() {
+  local fqdn=$1
+  log "=== Runner diagnostics ==="
+  az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "{status:properties.runningStatus,provisioning:properties.provisioningState,revision:properties.latestRevisionName,fqdn:properties.configuration.ingress.fqdn}" \
+    -o json 2>/dev/null || true
+  log "Replicas:"
+  az containerapp replica list --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" -o table 2>/dev/null \
+    || log "  (no replicas — usually ACR pull failure)"
+  log "System logs (image pull / probes):"
+  az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --type system --tail 40 2>/dev/null || true
+  log "Console logs (runner startup / Event Hub):"
+  az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --type console --tail 40 2>/dev/null || true
+  if [[ -n "$fqdn" ]]; then
+    log "HTTP checks:"
+    curl -sS -o /dev/null -w "  /metrics → HTTP %{http_code}\n" --max-time 15 "https://${fqdn}/metrics" 2>/dev/null || true
+    curl -sS -o /dev/null -w "  /healthz (port 8080 internal) — use console logs if 404 on metrics\n" --max-time 5 "https://${fqdn}/metrics" 2>/dev/null || true
+  fi
+  log "Common fixes:"
+  log "  1. git pull && ./scripts/fix-runner.sh --recreate --build"
+  log "  2. Check .env.azure has EVENTHUB_NAMESPACE + EVENTHUB_CONNECTION_STRING + EVENTHUB_NAME"
+  log "  3. Close other Cloud Shell tabs; wait 2 min if ContainerAppOperationInProgress"
+}
+
 wait_for_runner() {
-  local fqdn=$1 i
+  local fqdn=$1 i code
   log "Polling https://${fqdn}/metrics (up to ~10 min) ..."
   for i in $(seq 1 40); do
     if curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null | grep -q ai_gateway; then
       log "Runner is healthy: https://${fqdn}/metrics"
       return 0
     fi
-    (( i == 1 || i % 4 == 0 )) && log "  waiting ($i/40) ..."
+    code=$(curl -sS -o /dev/null -w "%{http_code}" --max-time 15 "https://${fqdn}/metrics" 2>/dev/null || echo "000")
+    (( i == 1 || i % 4 == 0 )) && log "  waiting ($i/40) — /metrics HTTP ${code} (404=no ready replicas yet)"
     sleep 15
   done
   return 1
@@ -182,7 +210,6 @@ if wait_for_runner "$FQDN"; then
   exit 0
 fi
 
-log "Runner still not healthy:"
-az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --type system --tail 20 2>/dev/null || true
-az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --type console --tail 20 2>/dev/null || true
+log "Runner still not healthy after 40 polls (~10 min):"
+diagnose_runner_failure "$FQDN"
 exit 1
