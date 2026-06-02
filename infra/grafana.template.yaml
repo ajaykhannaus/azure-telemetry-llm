@@ -47,19 +47,20 @@ properties:
           - name: PROMETHEUS_URL
             value: __PROMETHEUS_URL__
         probes:
+          # Azure limits: initialDelaySeconds 0–60, failureThreshold 1–30.
           - type: Startup
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 15
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 10
-            failureThreshold: 60
+            failureThreshold: 30
           - type: Liveness
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 60
+            initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
@@ -67,7 +68,7 @@ properties:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 15
             periodSeconds: 15
             timeoutSeconds: 10
             failureThreshold: 10

@@ -8,6 +8,18 @@ ENV_FILE="${ENV_FILE:-$ROOT/.env.azure}"
 
 log() { echo "[fix-grafana] $*"; }
 
+if [[ -d "$ROOT/.git" ]]; then
+  log "Updating repo..."
+  if ! git -C "$ROOT" pull --ff-only origin master 2>/dev/null \
+      && ! git -C "$ROOT" pull --ff-only origin main 2>/dev/null; then
+    log "WARN: git pull failed — continuing with local copy (run 'git pull' manually if probes fail)"
+  fi
+  log "Repo: $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+fi
+
+log "Probe config (must stay within Azure limits):"
+grep -E 'type:|initialDelaySeconds|failureThreshold' "$ROOT/infra/grafana.template.yaml" || true
+
 [[ -f "$CONFIG" ]] || { echo "ERROR: Missing $CONFIG" >&2; exit 1; }
 
 set -a

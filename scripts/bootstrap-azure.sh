@@ -28,6 +28,32 @@ done
 
 log() { echo "[bootstrap-azure] $*"; }
 
+# Azure Container Apps rejects probe values outside documented ranges.
+validate_grafana_yaml() {
+  local file=$1
+  local line key val bad=false
+  while IFS= read -r line; do
+    [[ "$line" =~ initialDelaySeconds:[[:space:]]*([0-9]+) ]] || continue
+    val="${BASH_REMATCH[1]}"
+    if (( val > 60 )); then
+      log "ERROR: $file has initialDelaySeconds=$val (Azure max 60)"
+      bad=true
+    fi
+  done < "$file"
+  while IFS= read -r line; do
+    [[ "$line" =~ failureThreshold:[[:space:]]*([0-9]+) ]] || continue
+    val="${BASH_REMATCH[1]}"
+    if (( val > 30 )); then
+      log "ERROR: $file has failureThreshold=$val (Azure max 30)"
+      bad=true
+    fi
+  done < "$file"
+  if [[ "$bad" == "true" ]]; then
+    log "Run: git pull   (need latest infra/grafana.template.yaml)"
+    return 1
+  fi
+}
+
 [[ -f "$CONFIG" ]] || {
   echo "ERROR: Missing $CONFIG" >&2
   echo "       cp azure/bootstrap-azure.env.example azure/bootstrap-azure.env" >&2
@@ -331,6 +357,7 @@ deploy_grafana() {
     -e "s|__PROMETHEUS_URL__|${prom_url}|g" \
     -e "s|__GRAFANA_ADMIN_PASSWORD__|${admin_pass}|g" \
     "$ROOT/infra/grafana.template.yaml" > "$rendered"
+  validate_grafana_yaml "$rendered"
 
   if ! acr_image_exists "grafana:latest"; then
     log "ERROR: $ACR_LOGIN_SERVER/grafana:latest missing — run: FORCE_IMAGE_BUILD=true ./scripts/bootstrap-azure.sh --grafana-only"

@@ -311,6 +311,14 @@ chmod +x scripts/fix-grafana.sh
 
 **If you see `Operation expired`:** The CLI timed out waiting for the revision — Grafana may still be starting in the background. Wait **2 minutes**, run command 19 again, or run command 20 to poll `/api/health` manually.
 
+**If you see `ContainerAppProbeInitialDelaySecondsOutOfRange` or `ContainerAppProbeFailureThresholdOutOfRange`:** Your Cloud Shell copy is stale. Run `git pull`, confirm probes look like below, then re-run command 19:
+
+```bash
+git pull
+grep -E 'initialDelaySeconds|failureThreshold' infra/grafana.template.yaml
+# initialDelaySeconds must be <= 60, failureThreshold <= 30
+```
+
 Manual equivalent:
 
 ```bash
