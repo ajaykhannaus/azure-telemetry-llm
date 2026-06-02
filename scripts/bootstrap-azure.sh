@@ -162,29 +162,66 @@ wait_for_containerapp_deleted() {
   return 1
 }
 
-wait_for_containerapp_provisioned() {
+wait_for_grafana_identity() {
   local name=$1
+  local i principal_id
+  for i in $(seq 1 24); do
+    if containerapp_exists "$name"; then
+      principal_id=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+        --query identity.principalId -o tsv 2>/dev/null || true)
+      if [[ -n "$principal_id" ]]; then
+        log "grafana: managed identity ready"
+        return 0
+      fi
+    fi
+    log "grafana: waiting for app + identity ($i/24)..."
+    sleep 10
+  done
+  log "WARN: timed out waiting for $name identity"
+  return 1
+}
+
+log_grafana_deploy_status() {
+  local rev
+  rev=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.latestRevisionName" -o tsv 2>/dev/null || true)
+  az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "{provisioning:properties.provisioningState,running:properties.runningStatus,revision:properties.latestRevisionName,fqdn:properties.configuration.ingress.fqdn}" \
+    -o json 2>/dev/null | sed 's/^/[bootstrap-azure] grafana status: /' || true
+  if [[ -n "$rev" ]]; then
+    az containerapp revision show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --revision "$rev" \
+      --query "{health:properties.healthState,replicas:properties.replicas,trafficWeight:properties.trafficWeight}" \
+      -o json 2>/dev/null | sed 's/^/[bootstrap-azure] grafana revision: /' || true
+  fi
+}
+
+bind_grafana_acr_registry() {
+  az containerapp registry set \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --server "$ACR_LOGIN_SERVER" \
+    --identity system \
+    --output none 2>/dev/null || true
+  log "grafana: registry auth bound ($ACR_LOGIN_SERVER → system identity)"
+}
+
+refresh_grafana_after_acr_pull() {
+  local rendered=$1
   local i state
-  for i in $(seq 1 60); do
-    state=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+  # Do not block on provisioningState — failed image pulls keep it InProgress until AcrPull exists.
+  for i in $(seq 1 6); do
+    state=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
       --query "properties.provisioningState" -o tsv 2>/dev/null || echo "Missing")
     case "$state" in
-      Succeeded)
-        log "grafana: provisioning complete for $name"
-        return 0
-        ;;
-      Failed)
-        log "ERROR: provisioning failed for $name"
-        return 1
-        ;;
+      Succeeded|Failed) break ;;
       *)
-        log "grafana: waiting for provisioning ($i/60, state=${state:-unknown})..."
+        log "grafana: create finishing ($i/6, state=$state) — AcrPull assigned, will refresh revision next"
         sleep 10
         ;;
     esac
   done
-  log "WARN: timed out waiting for $name provisioning (last state=$state)"
-  return 1
+  apply_grafana_update "$rendered"
 }
 
 delete_grafana_app() {
@@ -274,14 +311,15 @@ ensure_grafana_acr_pull() {
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --query identity.principalId -o tsv 2>/dev/null || true)
-  [[ -z "$principal_id" ]] && return 0
+  [[ -z "$principal_id" ]] && { log "WARN: grafana has no managed identity yet"; return 0; }
   acr_id=$(az acr show --name "$ACR_NAME" --query id -o tsv)
   az role assignment create \
     --assignee "$principal_id" \
     --role AcrPull \
     --scope "$acr_id" --output none 2>/dev/null || true
-  log "grafana: waiting 30s for AcrPull role propagation..."
-  sleep 30
+  log "grafana: AcrPull assigned — waiting 45s for role propagation..."
+  sleep 45
+  bind_grafana_acr_registry
 }
 
 restart_grafana_revision() {
@@ -300,19 +338,25 @@ restart_grafana_revision() {
 wait_for_grafana() {
   local fqdn i
   fqdn=$(containerapp_fqdn "$GRAFANA_APP_NAME")
-  [[ -z "$fqdn" ]] && { log "WARN: Grafana has no ingress FQDN"; return 1; }
+  [[ -z "$fqdn" ]] && { log "WARN: Grafana has no ingress FQDN"; log_grafana_deploy_status; return 1; }
   log "grafana: polling https://${fqdn}/api/health (up to ~10 min)..."
   for i in $(seq 1 40); do
     if curl -sf --max-time 15 "https://${fqdn}/api/health" >/dev/null 2>&1; then
       log "grafana: healthy at https://${fqdn}"
       return 0
     fi
-    log "grafana: waiting ($i/40)..."
+    if (( i == 1 || i % 4 == 0 )); then
+      log "grafana: waiting ($i/40)..."
+      log_grafana_deploy_status
+    else
+      log "grafana: waiting ($i/40)..."
+    fi
     sleep 15
   done
   log "WARN: Grafana not responding — check replicas and logs:"
   log "  az containerapp replica list -n $GRAFANA_APP_NAME -g $AZURE_RESOURCE_GROUP -o table"
   log "  az containerapp logs show -n $GRAFANA_APP_NAME -g $AZURE_RESOURCE_GROUP --type console --tail 40"
+  log_grafana_deploy_status
   return 1
 }
 
@@ -402,14 +446,9 @@ deploy_grafana() {
   else
     log "grafana: create $GRAFANA_APP_NAME"
     create_grafana_app "$rendered"
-    # Wait for app resource before assigning AcrPull.
-    for _ in $(seq 1 18); do
-      containerapp_exists "$GRAFANA_APP_NAME" && break
-      sleep 10
-    done
-    wait_for_containerapp_provisioned "$GRAFANA_APP_NAME" || true
+    wait_for_grafana_identity "$GRAFANA_APP_NAME" || true
     ensure_grafana_acr_pull
-    restart_grafana_revision
+    refresh_grafana_after_acr_pull "$rendered"
   fi
 
   GRAFANA_URL="https://$(containerapp_fqdn "$GRAFANA_APP_NAME")"

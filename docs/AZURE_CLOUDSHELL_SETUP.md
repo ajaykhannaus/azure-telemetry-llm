@@ -307,6 +307,8 @@ chmod +x scripts/fix-grafana.sh
 
 **Success:** `Grafana is healthy: https://...`
 
+**If you see `waiting for provisioning` for many minutes:** The old script waited for Azure before granting ACR pull access (image pull fails without it). Pull latest code — `fix-grafana.sh` now assigns AcrPull within ~1 min, then refreshes the revision.
+
 **If you see `AuthorizationFailed` / `content hash` / `ContainerAppOperationInProgress`:** Azure is still finishing a delete/create/update from this or another tab. Close other Cloud Shell tabs, wait **2 minutes**, then run command 19 again (do not run deploy in parallel).
 
 **If you see `Operation expired`:** The CLI timed out waiting for the revision — Grafana may still be starting in the background. Wait **2 minutes**, run command 19 again, or run command 20 to poll `/api/health` manually.
