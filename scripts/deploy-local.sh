@@ -219,17 +219,21 @@ cmd_build() {
 
 render_containerapp_yaml() {
   local rendered="$ROOT/infra/containerapp.rendered.yaml"
-  local env_id acr_login image
+  local env_id acr_login image eh_conn_escaped
 
   env_id=$(az containerapp env show \
     --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
   acr_login="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)}"
   image="${acr_login}/ai-telemetry-runner:latest"
+  eh_conn_escaped=$(printf '%s' "${EVENTHUB_CONNECTION_STRING:?Set EVENTHUB_CONNECTION_STRING in .env}" \
+    | sed -e 's/[\\&]/\\&/g')
 
   sed -e "s|__LOCATION__|$AZURE_LOCATION|g" \
       -e "s|__MANAGED_ENV_ID__|$env_id|g" \
       -e "s|__ACR_LOGIN_SERVER__|$acr_login|g" \
       -e "s|__IMAGE__|$image|g" \
+      -e "s|__EVENTHUB_NAMESPACE__|${EVENTHUB_NAMESPACE:?Set EVENTHUB_NAMESPACE in .env}|g" \
+      -e "s|__EVENTHUB_CONNECTION_STRING__|${eh_conn_escaped}|g" \
       "$ROOT/infra/containerapp.template.yaml" > "$rendered"
 
   echo "$rendered"
@@ -260,14 +264,6 @@ cmd_deploy() {
 
   rendered=$(render_containerapp_yaml)
   log "Rendered $rendered"
-
-  az containerapp secret set \
-    --name "$APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --secrets \
-      "eventhub-namespace=$EVENTHUB_NAMESPACE" \
-      "eventhub-connection-string=$EVENTHUB_CONNECTION_STRING" \
-    2>/dev/null || true
 
   if containerapp_exists "$APP_NAME"; then
     log "reuse $APP_NAME — skipping deploy"

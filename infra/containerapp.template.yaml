@@ -20,6 +20,11 @@ properties:
     registries:
       - server: __ACR_LOGIN_SERVER__
         identity: system
+    secrets:
+      - name: eventhub-namespace
+        value: __EVENTHUB_NAMESPACE__
+      - name: eventhub-connection-string
+        value: __EVENTHUB_CONNECTION_STRING__
   template:
     containers:
       - name: ai-telemetry-runner-dev

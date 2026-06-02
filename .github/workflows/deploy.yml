@@ -119,6 +119,8 @@ jobs:
             -replace '__MANAGED_ENV_ID__', $envId `
             -replace '__ACR_LOGIN_SERVER__', "${{ env.ACR }}" `
             -replace '__IMAGE__', $image `
+            -replace '__EVENTHUB_NAMESPACE__', "${{ secrets.EVENTHUB_NAMESPACE }}" `
+            -replace '__EVENTHUB_CONNECTION_STRING__', "${{ secrets.EVENTHUB_CONNECTION_STRING }}" `
             | Set-Content infra/containerapp.rendered.yaml
           Get-Content infra/containerapp.rendered.yaml
 
