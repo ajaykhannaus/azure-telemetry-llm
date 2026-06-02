@@ -176,6 +176,7 @@ Download via Cloud Shell **Download** if you want a copy for later.
 | 11 | bootstrap | ☐ |
 | 12 | ADX schema in Portal | ☐ |
 | 14 | `cloudshell-deploy.sh` | ☐ |
+| 16–17 | Grafana 404 fix (if needed) | ☐ |
 
 ---
 
@@ -185,8 +186,9 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 
 | Re-run | Behavior |
 |---|---|
-| `./scripts/bootstrap-azure.sh` | Reuses ACR, CAE, Event Hub, Prometheus workspace, Managed Grafana, ADX; skips image build if app exists or `:latest` already in ACR; skips Grafana Container App deploy if `$GRAFANA_APP_NAME` exists |
-| `./scripts/cloudshell-deploy.sh` | Skips deploy for existing `$APP_NAME` / `$PROM_APP_NAME` Container Apps |
+| `./scripts/bootstrap-azure.sh` | Reuses ACR, CAE, Event Hub, Prometheus workspace, Managed Grafana, ADX; skips image build if app is running or `:latest` already in ACR; skips Grafana deploy only if `$GRAFANA_APP_NAME` is **Running** |
+| `./scripts/bootstrap-azure.sh --grafana-only` | Redeploy self-hosted Grafana only (updates if stopped) |
+| `./scripts/cloudshell-deploy.sh` | Deploys runner + Grafana + verify; skips runner if `$APP_NAME` already exists |
 | Force Container App update | `export FORCE_CONTAINER_DEPLOY=true` before deploy |
 | Force image rebuild | `export FORCE_IMAGE_BUILD=true` before bootstrap |
 
@@ -198,8 +200,53 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 |---|---|
 | `Authorization failed` | Need Contributor (command 3) |
 | ACR / Event Hub name taken | Command 10, then 9 again |
-| ` .env.azure not found` | Run command 11 first |
+| `.env.azure not found` | Run command 11 first |
 | Deploy fails on Event Hub | Re-run command 11 |
+| `SecretRef 'eventhub-namespace' not found` | `git pull` then re-run command 14 |
+| Grafana **404** / app stopped | Commands 16–18 below |
+
+---
+
+### Command 16 — check Grafana Container App status
+
+```bash
+git pull
+az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg \
+  --query "{status:properties.runningStatus,fqdn:properties.configuration.ingress.fqdn}" -o json
+```
+
+**Success:** `"status": "Running"` and an `fqdn` URL. Open `https://<fqdn>` (login: **admin** / **admin**).
+
+---
+
+### Command 17 — redeploy Grafana only
+
+```bash
+./scripts/bootstrap-azure.sh --grafana-only
+```
+
+Wait ~2–3 min, then open the `Grafana:` URL printed at the end.
+
+---
+
+### Command 18 — if Grafana still 404 (check logs)
+
+```bash
+az containerapp logs show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg --type console --tail 40
+```
+
+Or redeploy everything (runner + Grafana + verify):
+
+```bash
+./scripts/cloudshell-deploy.sh
+```
+
+Force a full Container App update:
+
+```bash
+export FORCE_CONTAINER_DEPLOY=true
+./scripts/cloudshell-deploy.sh
+```
 
 ---
 
