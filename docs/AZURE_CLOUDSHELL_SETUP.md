@@ -256,6 +256,7 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 | Deploy seems slow (10–15 min) | Normal on first create; use command 14b in a second tab |
 | Grafana **404** / app stopped | Command 19 (`fix-grafana.sh`) or 16–20 |
 | `AuthorizationFailed` / async hash on create | Close other Cloud Shell tabs; wait 2 min; re-run command 19 |
+| `Operation expired` on revision | Normal on slow sandbox — re-run command 19; script now polls up to 10 min |
 
 ---
 
@@ -307,6 +308,8 @@ chmod +x scripts/fix-grafana.sh
 **Success:** `Grafana is healthy: https://...`
 
 **If you see `AuthorizationFailed` / `content hash`:** Azure is still finishing a delete from another tab or an earlier run. Close other Cloud Shell tabs, wait **2 minutes**, then run command 19 again (do not run deploy in parallel).
+
+**If you see `Operation expired`:** The CLI timed out waiting for the revision — Grafana may still be starting in the background. Wait **2 minutes**, run command 19 again, or run command 20 to poll `/api/health` manually.
 
 Manual equivalent:
 

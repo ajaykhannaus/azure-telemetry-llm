@@ -54,7 +54,11 @@ export FORCE_CONTAINER_DEPLOY=true
 export BOOTSTRAP_CONFIG="$CONFIG"
 export WRITE_ENV_FILE="${WRITE_ENV_FILE:-.env.azure}"
 chmod +x "$ROOT/scripts/bootstrap-azure.sh"
+set +e
 "$ROOT/scripts/bootstrap-azure.sh" --grafana-only
+bootstrap_rc=$?
+set -e
+[[ "$bootstrap_rc" -ne 0 ]] && log "WARN: bootstrap exited $bootstrap_rc — checking /api/health anyway..."
 
 FQDN=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
   --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)

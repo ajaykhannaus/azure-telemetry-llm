@@ -27,8 +27,8 @@ properties:
       - name: grafana
         image: __IMAGE__
         resources:
-          cpu: 0.5
-          memory: 1Gi
+          cpu: 1.0
+          memory: 2Gi
         env:
           - name: GF_SECURITY_ADMIN_USER
             value: admin
@@ -42,6 +42,8 @@ properties:
             value: light
           - name: GF_SERVER_ROOT_URL
             value: "%(protocol)s://%(domain)s/"
+          - name: GF_ANALYTICS_REPORTING_ENABLED
+            value: "false"
           - name: PROMETHEUS_URL
             value: __PROMETHEUS_URL__
         probes:
@@ -49,26 +51,26 @@ properties:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 5
-            periodSeconds: 5
-            timeoutSeconds: 5
-            failureThreshold: 30
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 60
           - type: Liveness
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 120
             periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 5
           - type: Readiness
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 10
+            initialDelaySeconds: 30
             periodSeconds: 15
-            timeoutSeconds: 5
-            failureThreshold: 3
+            timeoutSeconds: 10
+            failureThreshold: 10
     scale:
       minReplicas: 1
       maxReplicas: 1

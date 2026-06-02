@@ -156,7 +156,9 @@ create_grafana_app() {
     if out=$(az containerapp create \
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered" 2>&1); then
+      --yaml "$rendered" \
+      --no-wait 2>&1); then
+      log "grafana: create accepted (provisioning in background)"
       return 0
     fi
     if echo "$out" | grep -qiE 'AuthorizationFailed|async operation|content hash'; then
@@ -172,6 +174,25 @@ create_grafana_app() {
     fi
   done
   log "ERROR: grafana create failed after $attempt attempts"
+  return 1
+}
+
+apply_grafana_update() {
+  local rendered=$1
+  local out
+  if out=$(az containerapp update \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --yaml "$rendered" \
+    --no-wait 2>&1); then
+    log "grafana: update accepted (provisioning in background)"
+    return 0
+  fi
+  if echo "$out" | grep -qiE 'Operation expired|already in progress'; then
+    log "WARN: grafana update reported '$out' — continuing to poll /api/health"
+    return 0
+  fi
+  echo "$out" >&2
   return 1
 }
 
@@ -203,8 +224,8 @@ ensure_grafana_acr_pull() {
     --assignee "$principal_id" \
     --role AcrPull \
     --scope "$acr_id" --output none 2>/dev/null || true
-  log "grafana: waiting 45s for AcrPull role propagation..."
-  sleep 45
+  log "grafana: waiting 30s for AcrPull role propagation..."
+  sleep 30
 }
 
 restart_grafana_revision() {
@@ -224,12 +245,13 @@ wait_for_grafana() {
   local fqdn i
   fqdn=$(containerapp_fqdn "$GRAFANA_APP_NAME")
   [[ -z "$fqdn" ]] && { log "WARN: Grafana has no ingress FQDN"; return 1; }
-  for i in $(seq 1 20); do
+  log "grafana: polling https://${fqdn}/api/health (up to ~10 min)..."
+  for i in $(seq 1 40); do
     if curl -sf --max-time 15 "https://${fqdn}/api/health" >/dev/null 2>&1; then
       log "grafana: healthy at https://${fqdn}"
       return 0
     fi
-    log "grafana: waiting for https://${fqdn}/api/health ($i/20)..."
+    log "grafana: waiting ($i/40)..."
     sleep 15
   done
   log "WARN: Grafana not responding — check replicas and logs:"
@@ -319,20 +341,17 @@ deploy_grafana() {
   if containerapp_exists "$GRAFANA_APP_NAME"; then
     log "grafana: update $GRAFANA_APP_NAME (not serving or forced)"
     ensure_grafana_acr_pull
-    az containerapp update \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered" --output none
-    restart_grafana_revision
+    apply_grafana_update "$rendered"
   else
     log "grafana: create $GRAFANA_APP_NAME"
     create_grafana_app "$rendered"
+    # Wait for app resource before assigning AcrPull.
+    for _ in $(seq 1 18); do
+      containerapp_exists "$GRAFANA_APP_NAME" && break
+      sleep 10
+    done
     ensure_grafana_acr_pull
-    az containerapp update \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered" --output none
-    restart_grafana_revision
+    apply_grafana_update "$rendered"
   fi
 
   GRAFANA_URL="https://$(containerapp_fqdn "$GRAFANA_APP_NAME")"
