@@ -254,7 +254,7 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 | Deploy fails on Event Hub | Re-run command 11 |
 | `SecretRef 'eventhub-namespace' not found` | `git pull` then re-run command 14 |
 | Deploy seems slow (10–15 min) | Normal on first create; use command 14b in a second tab |
-| Grafana **404** / app stopped | Command 19 (`fix-grafana.sh`) or 16–20 |
+| Grafana **404** / app stopped | Command 19 (`fix-grafana.sh`) or 19b (`fix-grafana-acr.sh`) |
 | `AuthorizationFailed` / async hash on create | Close other Cloud Shell tabs; wait 2 min; re-run command 19 |
 | `Operation expired` on revision | Normal on slow sandbox — re-run command 19; script now polls up to 10 min |
 
@@ -307,13 +307,23 @@ chmod +x scripts/fix-grafana.sh
 
 **Success:** `Grafana is healthy: https://...`
 
-**If you see `401` / `FetchingKeyVaultSecretFailed` / `ACR token exchange` in system logs:** Grafana’s managed identity cannot pull from ACR yet. Pull latest code and re-run command 19 — it now waits for AcrPull propagation (~2 min) and falls back to ACR admin credentials in sandbox. Manual check:
+### Command 19b — ACR auth only (401 / ImagePullBackOff, no delete/recreate)
+
+Use this when command 19 fails with `401`, `FetchingKeyVaultSecretFailed`, or `ACR token exchange` in system logs. It fixes registry permissions on the **existing** app.
 
 ```bash
-PID=$(az containerapp show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg --query identity.principalId -o tsv)
-ACR_ID=$(az acr show -n acrtelemetrydevaj --query id -o tsv)
-az role assignment list --assignee-object-id $PID --scope $ACR_ID -o table
+git pull
+chmod +x scripts/fix-grafana-acr.sh
+./scripts/fix-grafana-acr.sh
 ```
+
+If managed identity still fails in sandbox:
+
+```bash
+./scripts/fix-grafana-acr.sh --admin-only
+```
+
+**If you see `401` / `FetchingKeyVaultSecretFailed` / `ACR token exchange` in system logs:** Run command **19b** above (or re-run command 19 — it now calls 19b automatically on failure).
 
 **If you see `waiting for provisioning` for many minutes:** The old script waited for Azure before granting ACR pull access (image pull fails without it). Pull latest code — `fix-grafana.sh` now assigns AcrPull within ~1 min, then refreshes the revision.
 
@@ -374,4 +384,5 @@ export FORCE_CONTAINER_DEPLOY=true
 | `scripts/bootstrap-azure.sh` | Create Azure resources |
 | `scripts/cloudshell-deploy.sh` | Deploy app from Cloud Shell |
 | `scripts/fix-grafana.sh` | Diagnose + repair Grafana 404 |
+| `scripts/fix-grafana-acr.sh` | Fix ACR 401 / image pull (no delete/recreate) |
 | `infra/adx-schema.kql` | ADX database tables |

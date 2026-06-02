@@ -80,7 +80,16 @@ if [[ -n "$FQDN" ]] && curl -sf --max-time 20 "https://${FQDN}/api/health" >/dev
   log "Grafana is healthy: https://${FQDN}  (admin / ${GRAFANA_ADMIN_PASSWORD:-admin})"
 else
   echo ""
-  log "Grafana still not healthy. Run these and share output:"
+  log "Full repair did not reach /api/health — trying ACR auth fix (no delete/recreate) ..."
+  chmod +x "$ROOT/scripts/fix-grafana-acr.sh"
+  set +e
+  "$ROOT/scripts/fix-grafana-acr.sh" --no-git-pull
+  acr_rc=$?
+  set -e
+  [[ "$acr_rc" -eq 0 ]] && exit 0
+
+  log "Grafana still not healthy. Try:"
+  echo "  ./scripts/fix-grafana-acr.sh --admin-only"
   echo "  az containerapp replica list -n $GRAFANA_APP_NAME -g $AZURE_RESOURCE_GROUP -o table"
   echo "  az containerapp logs show -n $GRAFANA_APP_NAME -g $AZURE_RESOURCE_GROUP --type system --tail 30"
   exit 1
