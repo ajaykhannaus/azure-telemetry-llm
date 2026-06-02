@@ -52,9 +52,14 @@ if ! az account show >/dev/null 2>&1; then
   exit 1
 fi
 
-SKU="Dev_No_SLA_Standard_D11_v2"
+SKU="${ADX_DEV_SKU:-Standard_D11_v2}"
+TIER="${ADX_DEV_TIER:-Standard}"
 CAPACITY=1
-[[ "$ENV" == "prod" ]] && SKU="Standard_D11_v2" && CAPACITY=2
+if [[ "$ENV" == "prod" ]]; then
+  SKU="${ADX_PROD_SKU:-Standard_D11_v2}"
+  TIER="${ADX_PROD_TIER:-Standard}"
+  CAPACITY=2
+fi
 
 echo "ADX provision"
 echo "  rg       : $RG"
@@ -71,7 +76,7 @@ else
     --name "$CLUSTER" \
     --resource-group "$RG" \
     --location "$LOCATION" \
-    --sku name="$SKU" capacity="$CAPACITY" tier="Basic" \
+    --sku name="$SKU" capacity="$CAPACITY" tier="$TIER" \
     --output none
   az kusto cluster wait --name "$CLUSTER" --resource-group "$RG" --created --interval 30 --timeout 900
 fi

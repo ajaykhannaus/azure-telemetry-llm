@@ -4,6 +4,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/azure-deploy-common.sh
+source "$ROOT/scripts/lib/azure-deploy-common.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env.azure}"
 SKIP_PULL=false
 BUILD_IMAGES=false
@@ -118,9 +120,9 @@ render_acr_admin_yaml() {
   shift 3
   local env_id user pass
   env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
-  az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null || true
-  user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
-  pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
+  acr_admin_credentials "$ACR_NAME"
+  user="$(awk_escape "$ACR_ADMIN_USER")"
+  pass="$(awk_escape "$ACR_ADMIN_PASS")"
   awk -v loc="$AZURE_LOCATION" \
       -v env_id="$env_id" \
       -v acr_server="$ACR_LOGIN_SERVER" \
@@ -237,29 +239,8 @@ wait_for_app "$TEMPO_APP_NAME" \
 
 log "=== Prometheus scraper ==="
 build_if_needed "prometheus-scraper:latest" "$ROOT/Dockerfile.prometheus"
-
-if containerapp_exists "$PROM_APP_NAME"; then
-  log "Updating $PROM_APP_NAME scrape target ..."
-  az containerapp update \
-    --name "$PROM_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --image "${ACR_LOGIN_SERVER}/prometheus-scraper:latest" \
-    --set-env-vars "SCRAPE_TARGET=${RUNNER_FQDN}"
-else
-  log "Creating $PROM_APP_NAME ..."
-  az containerapp create \
-    --name "$PROM_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --environment "$CAE_NAME" \
-    --image "${ACR_LOGIN_SERVER}/prometheus-scraper:latest" \
-    --registry-server "$ACR_LOGIN_SERVER" \
-    --registry-username "$(az acr credential show --name "$ACR_NAME" --query username -o tsv)" \
-    --registry-password "$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)" \
-    --ingress internal --target-port 9090 \
-    --min-replicas 1 --max-replicas 1 \
-    --cpu 0.25 --memory 0.5Gi \
-    --env-vars "SCRAPE_TARGET=${RUNNER_FQDN}"
-fi
+prometheus_deploy_sandbox "$PROM_APP_NAME" "$CAE_NAME" "$AZURE_RESOURCE_GROUP" \
+  "$ACR_NAME" "$ACR_LOGIN_SERVER" "$RUNNER_FQDN"
 
 PROM_FQDN=$(app_fqdn "$PROM_APP_NAME")
 wait_for_app "$PROM_APP_NAME" \
@@ -278,9 +259,12 @@ PROM_EP="https://$(internal_host "$PROM_APP_NAME")/api/v1/write"
 
 otel_yaml="$ROOT/infra/otel.rendered.yaml"
 env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
-az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null || true
-user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
-pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
+acr_admin_credentials "$ACR_NAME"
+user="$(awk_escape "$ACR_ADMIN_USER")"
+pass="$(awk_escape "$ACR_ADMIN_PASS")"
+tempo_ep="$(awk_escape "$TEMPO_EP")"
+loki_ep="$(awk_escape "$LOKI_EP")"
+prom_ep="$(awk_escape "$PROM_EP")"
 awk -v loc="$AZURE_LOCATION" \
     -v env_id="$env_id" \
     -v acr_server="$ACR_LOGIN_SERVER" \

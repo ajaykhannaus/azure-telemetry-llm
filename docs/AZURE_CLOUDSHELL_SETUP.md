@@ -123,7 +123,9 @@ Then re-run command 9.
 
 ---
 
-## Part E — ADX schema (Portal, one-time)
+## Part E — ADX schema (Portal, optional)
+
+Skip this section if `PROVISION_ADX=false` in `azure/bootstrap-azure.env` (default sandbox).
 
 ### Command 12 — show schema
 

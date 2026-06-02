@@ -256,14 +256,27 @@ cat .env.azure
 
 ### Re-check bootstrap only (no full redeploy)
 
+Ensure sandbox flags are set before re-bootstrap:
+
+```bash
+grep -E 'PROVISION_|GRAFANA_DEFER|RUNNER_ACR' azure/bootstrap-azure.env
+# expect PROVISION_OBSERVABILITY=false PROVISION_ADX=false
+```
+
 ```bash
 ./scripts/bootstrap-azure.sh --preflight
 ```
 
-To regenerate `.env.azure` without waiting for Grafana/image builds, run full bootstrap (reuses ACR/CAE/Event Hub):
+To regenerate `.env.azure` (reuses ACR/CAE/Event Hub; skips ADX when `PROVISION_ADX=false`):
 
 ```bash
 ./scripts/bootstrap-azure.sh
+```
+
+Full stack after bootstrap:
+
+```bash
+./scripts/cloudshell-setup-complete.sh
 ```
 
 ---

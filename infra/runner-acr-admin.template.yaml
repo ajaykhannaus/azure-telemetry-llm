@@ -80,7 +80,7 @@ properties:
             timeoutSeconds: 5
             failureThreshold: 30
     scale:
-      minReplicas: 2
+      minReplicas: 1
       maxReplicas: 4
 identity:
   type: SystemAssigned

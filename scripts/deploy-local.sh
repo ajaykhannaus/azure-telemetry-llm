@@ -17,6 +17,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/azure-deploy-common.sh
+source "$ROOT/scripts/lib/azure-deploy-common.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env}"
 
 # ── Dev resource names (override any in .env) ───────────────────────────────
@@ -225,8 +227,9 @@ render_containerapp_yaml() {
     --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
   acr_login="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)}"
   image="${acr_login}/ai-telemetry-runner:latest"
-  eh_conn_escaped=$(printf '%s' "${EVENTHUB_CONNECTION_STRING:?Set EVENTHUB_CONNECTION_STRING in .env}" \
-    | sed -e 's/[\\&]/\\&/g')
+  eh_conn_escaped=$(awk_escape "${EVENTHUB_CONNECTION_STRING:?Set EVENTHUB_CONNECTION_STRING in .env}")
+  otel_ep=$(resolve_azure_otel_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "${OTEL_APP_NAME:-otel-collector-dev}")
+  otel_ep_escaped=$(awk_escape "$otel_ep")
 
   sed -e "s|__LOCATION__|$AZURE_LOCATION|g" \
       -e "s|__MANAGED_ENV_ID__|$env_id|g" \
@@ -235,6 +238,7 @@ render_containerapp_yaml() {
       -e "s|__EVENTHUB_NAMESPACE__|${EVENTHUB_NAMESPACE:?Set EVENTHUB_NAMESPACE in .env}|g" \
       -e "s|__EVENTHUB_CONNECTION_STRING__|${eh_conn_escaped}|g" \
       -e "s|__EVENTHUB_NAME__|${EH_NAME}|g" \
+      -e "s|__OTEL_ENDPOINT__|${otel_ep_escaped}|g" \
       "$ROOT/infra/containerapp.template.yaml" > "$rendered"
 
   echo "$rendered"
@@ -263,43 +267,36 @@ cmd_deploy() {
 
   az extension add --name containerapp --upgrade --yes --output none 2>/dev/null || true
 
-  rendered=$(render_containerapp_yaml)
-  log "Rendered $rendered"
-
-  if containerapp_exists "$APP_NAME"; then
-    fqdn=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-      --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-    if [[ -n "$fqdn" ]] && curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null | grep -q ai_gateway \
-        && [[ "${FORCE_CONTAINER_DEPLOY:-false}" != "true" ]]; then
-      log "reuse $APP_NAME — already serving /metrics"
-    elif [[ "${FORCE_CONTAINER_DEPLOY:-false}" == "true" ]] || [[ -n "$fqdn" ]]; then
-      log "Updating $APP_NAME (not serving or forced) ..."
-      az containerapp update \
-        --name "$APP_NAME" \
-        --resource-group "$AZURE_RESOURCE_GROUP" \
-        --yaml "$rendered"
-    else
-      log "reuse $APP_NAME — skipping deploy"
-    fi
+  if [[ "${RUNNER_ACR_USE_ADMIN:-true}" == "true" ]]; then
+    log "Deploying runner via fix-runner.sh (ACR admin — recommended for sandbox)"
+    ENV_FILE="$ENV_FILE" "$ROOT/scripts/fix-runner.sh" --no-git-pull \
+      ${FORCE_CONTAINER_DEPLOY:+--recreate} ${FORCE_IMAGE_BUILD:+--build}
   else
-    log "Creating $APP_NAME ..."
-    az containerapp create \
-      --name "$APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered"
-    ensure_acr_pull
-    az containerapp update \
-      --name "$APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --yaml "$rendered"
+    rendered=$(render_containerapp_yaml)
+    log "Rendered $rendered"
+    if containerapp_exists "$APP_NAME"; then
+      fqdn=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+        --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+      if [[ -n "$fqdn" ]] && curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null | grep -q ai_gateway \
+          && [[ "${FORCE_CONTAINER_DEPLOY:-false}" != "true" ]]; then
+        log "reuse $APP_NAME — already serving /metrics"
+      else
+        log "Updating $APP_NAME ..."
+        az containerapp update --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --yaml "$rendered"
+      fi
+    else
+      log "Creating $APP_NAME ..."
+      az containerapp create --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --yaml "$rendered"
+      ensure_acr_pull
+      az containerapp update --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --yaml "$rendered"
+    fi
   fi
 
-  if [[ -n "${PROM_REMOTE_WRITE_URL:-}" ]]; then
-    fqdn=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-      --query "properties.configuration.ingress.fqdn" -o tsv)
-    acr_login="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)}"
+  fqdn=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+  acr_login="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)}"
 
-    log "Deploying $PROM_APP_NAME (scrape target: $fqdn) ..."
+  if [[ -n "${PROM_REMOTE_WRITE_URL:-}" ]]; then
     if containerapp_exists "$PROM_APP_NAME"; then
       log "reuse $PROM_APP_NAME — skipping deploy"
       if [[ "${FORCE_CONTAINER_DEPLOY:-false}" == "true" ]]; then
@@ -325,31 +322,9 @@ cmd_deploy() {
           "PROM_REMOTE_WRITE_URL=$PROM_REMOTE_WRITE_URL"
     fi
   elif [[ "${DEPLOY_SANDBOX_PROMETHEUS:-true}" == "true" ]]; then
-    fqdn=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-      --query "properties.configuration.ingress.fqdn" -o tsv)
-    acr_login="${ACR_LOGIN_SERVER:-$(az acr show --name "$ACR_NAME" --query loginServer -o tsv)}"
     log "Deploying $PROM_APP_NAME sandbox mode (scrape target: $fqdn, no AMP remote_write) ..."
-    if containerapp_exists "$PROM_APP_NAME"; then
-      if [[ "${FORCE_CONTAINER_DEPLOY:-false}" == "true" ]]; then
-        az containerapp update \
-          --name "$PROM_APP_NAME" \
-          --resource-group "$AZURE_RESOURCE_GROUP" \
-          --image "${acr_login}/prometheus-scraper:latest" \
-          --set-env-vars "SCRAPE_TARGET=$fqdn"
-      else
-        log "reuse $PROM_APP_NAME — skipping deploy"
-      fi
-    else
-      az containerapp create \
-        --name "$PROM_APP_NAME" \
-        --resource-group "$AZURE_RESOURCE_GROUP" \
-        --environment "$CAE_NAME" \
-        --image "${acr_login}/prometheus-scraper:latest" \
-        --ingress internal --target-port 9090 \
-        --min-replicas 1 --max-replicas 1 \
-        --cpu 0.25 --memory 0.5Gi \
-        --env-vars "SCRAPE_TARGET=$fqdn"
-    fi
+    prometheus_deploy_sandbox "$PROM_APP_NAME" "$CAE_NAME" "$AZURE_RESOURCE_GROUP" \
+      "$ACR_NAME" "$acr_login" "$fqdn"
   else
     log "Skipping $PROM_APP_NAME — PROM_REMOTE_WRITE_URL not set (run deploy-observability-stack.sh for full stack)"
   fi

@@ -3,6 +3,7 @@
 set -e
 
 CONFIG=/etc/otelcol-contrib/config.yaml
+OUT=/tmp/otel-config.yaml
 
 for var in TEMPO_ENDPOINT LOKI_ENDPOINT PROM_WRITE_ENDPOINT; do
   eval "val=\$$var"
@@ -16,6 +17,6 @@ sed \
   -e "s|__TEMPO_ENDPOINT__|${TEMPO_ENDPOINT}|g" \
   -e "s|__LOKI_ENDPOINT__|${LOKI_ENDPOINT}|g" \
   -e "s|__PROM_WRITE_ENDPOINT__|${PROM_WRITE_ENDPOINT}|g" \
-  "$CONFIG" > /tmp/otel-config.yaml
+  "$CONFIG" > "$OUT"
 
-exec /otelcol-contrib --config=/tmp/otel-config.yaml
+exec /otelcol-contrib --config="$OUT"

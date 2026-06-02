@@ -70,7 +70,7 @@ OTEL_FQDN=$(app_fqdn "$OTEL_APP_NAME")
 [[ -n "$LOKI_FQDN" ]] && check_url "Loki /ready" "https://${LOKI_FQDN}/ready" || fail "Loki $LOKI_APP_NAME missing"
 [[ -n "$TEMPO_FQDN" ]] && check_url "Tempo /ready" "https://${TEMPO_FQDN}/ready" || fail "Tempo $TEMPO_APP_NAME missing"
 [[ -n "$PROM_FQDN" ]] && check_url "Prometheus /-/ready" "https://${PROM_FQDN}/-/ready" || fail "Prometheus $PROM_APP_NAME missing"
-[[ -n "$OTEL_FQDN" ]] && check_url "OTel Collector health" "https://${OTEL_FQDN}/" || warn "OTel Collector health check (may need internal URL)"
+[[ -n "$OTEL_FQDN" ]] && check_url "OTel Collector health" "https://${OTEL_FQDN}/" || log "WARN OTel Collector external health (internal-only ingress is normal)"
 
 echo ""
 log "=== Grafana ==="

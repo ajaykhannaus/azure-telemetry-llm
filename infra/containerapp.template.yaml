@@ -1,8 +1,5 @@
-# Container Apps deployment template for the telemetry runner.
-# Applied by GitHub Actions via `az containerapp create --yaml`.
-#
-# Placeholders surrounded by __DOUBLE_UNDERSCORES__ are substituted by the
-# CI workflow at deploy time (see .github/workflows/deploy.yml).
+# Container Apps deployment template for the telemetry runner (managed identity / CI).
+# Sandbox Cloud Shell deploys use infra/runner-acr-admin.template.yaml instead.
 location: __LOCATION__
 properties:
   managedEnvironmentId: __MANAGED_ENV_ID__
@@ -49,6 +46,13 @@ properties:
             secretRef: eventhub-connection-string
           - name: EVENTHUB_NAME
             value: __EVENTHUB_NAME__
+          - name: ALLOW_MOCK_MODE
+            value: "true"
+          - name: OTEL_EXPORTER_OTLP_ENDPOINT
+            value: __OTEL_ENDPOINT__
+          - name: OTEL_EXPORTER_OTLP_INSECURE
+            value: "true"
+        probes:
           - type: Liveness
             httpGet:
               path: /healthz
@@ -59,12 +63,12 @@ properties:
             failureThreshold: 3
           - type: Readiness
             httpGet:
-              path: /readyz
+              path: /healthz
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 15
             timeoutSeconds: 5
-            failureThreshold: 3
+            failureThreshold: 5
           - type: Startup
             httpGet:
               path: /healthz
@@ -74,7 +78,7 @@ properties:
             timeoutSeconds: 5
             failureThreshold: 30
     scale:
-      minReplicas: 2
+      minReplicas: 1
       maxReplicas: 4
 identity:
   type: SystemAssigned

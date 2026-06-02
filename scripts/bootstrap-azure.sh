@@ -83,8 +83,9 @@ if [[ -z "${AZURE_SUBSCRIPTION_ID:-}" || "$AZURE_SUBSCRIPTION_ID" == "00000000-0
 fi
 
 USE_EXISTING_RG="${USE_EXISTING_RG:-true}"
-PROVISION_OBSERVABILITY="${PROVISION_OBSERVABILITY:-true}"
-PROVISION_ADX="${PROVISION_ADX:-true}"
+PROVISION_OBSERVABILITY="${PROVISION_OBSERVABILITY:-false}"
+PROVISION_ADX="${PROVISION_ADX:-false}"
+GRAFANA_DEFER_DEPLOY="${GRAFANA_DEFER_DEPLOY:-false}"
 BUILD_IMAGES="${BUILD_IMAGES:-true}"
 WRITE_ENV_FILE="${WRITE_ENV_FILE:-.env.azure}"
 PREFLIGHT="${PREFLIGHT:-false}"
@@ -662,10 +663,17 @@ deploy_grafana() {
   fi
 
   if containerapp_exists "$GRAFANA_APP_NAME"; then
-    render_grafana_standard_yaml "$rendered" "$prom_url" "$loki_url" "$tempo_url" "$admin_pass" "$env_id" "$grafana_image"
-    log "grafana: update $GRAFANA_APP_NAME (not serving or forced)"
-    ensure_grafana_acr_pull
-    apply_grafana_yaml "$rendered"
+    if [[ "${GRAFANA_ACR_USE_ADMIN:-true}" == "true" ]]; then
+      render_grafana_acr_admin_yaml "$rendered" "$prom_url" "$loki_url" "$tempo_url" "$admin_pass" "$env_id" "$grafana_image" \
+        || { log "ERROR: failed to render ACR-admin YAML"; return 1; }
+      log "grafana: update $GRAFANA_APP_NAME (ACR admin YAML)"
+      apply_grafana_yaml "$rendered"
+    else
+      render_grafana_standard_yaml "$rendered" "$prom_url" "$loki_url" "$tempo_url" "$admin_pass" "$env_id" "$grafana_image"
+      log "grafana: update $GRAFANA_APP_NAME (managed identity)"
+      ensure_grafana_acr_pull
+      apply_grafana_yaml "$rendered"
+    fi
   elif [[ "${GRAFANA_ACR_USE_ADMIN:-true}" == "true" ]]; then
     render_grafana_acr_admin_yaml "$rendered" "$prom_url" "$loki_url" "$tempo_url" "$admin_pass" "$env_id" "$grafana_image" \
       || { log "ERROR: failed to render ACR-admin YAML"; return 1; }
@@ -689,6 +697,12 @@ deploy_grafana() {
 if [[ "$GRAFANA_ONLY" == "true" ]]; then
   delete_grafana_app
   export GRAFANA_SKIP_DELETE=true
+  if [[ -f "$WRITE_ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$WRITE_ENV_FILE"
+    set +a
+  fi
   if [[ "$BUILD_IMAGES" == "true" ]]; then
     if [[ "${FORCE_IMAGE_BUILD:-false}" == "true" ]] || [[ "${GRAFANA_RECREATE:-false}" == "true" ]] \
         || ! acr_image_exists "grafana:latest"; then
@@ -833,19 +847,25 @@ if [[ "$PROVISION_ADX" == "true" ]]; then
   else
     log "adx database"
     chmod +x "$ROOT/infra/adx-data-connection.sh"
-    ADX_OUT=$("$ROOT/infra/adx-data-connection.sh" \
+    if ! ADX_OUT=$("$ROOT/infra/adx-data-connection.sh" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --location "$AZURE_LOCATION" \
       --cluster-name "$ADX_CLUSTER" \
       --db-name "$ADX_DATABASE" \
       --eventhub-ns "$EH_NS" \
       --eventhub-name "$EH_NAME" \
-      --env "$ADX_ENV" 2>&1) || true
-    echo "$ADX_OUT"
-    ADX_CLUSTER_URI=$(echo "$ADX_OUT" | awk -F= '/^  ADX_CLUSTER_URI=/ {print $2; exit}')
+      --env "$ADX_ENV" 2>&1); then
+      log "WARN: ADX provisioning failed (optional in sandbox):"
+      echo "$ADX_OUT"
+    else
+      echo "$ADX_OUT"
+      ADX_CLUSTER_URI=$(echo "$ADX_OUT" | awk -F= '/^  ADX_CLUSTER_URI=/ {print $2; exit}')
+    fi
     [[ -z "$ADX_CLUSTER_URI" ]] && ADX_CLUSTER_URI=$(az kusto cluster show \
       --name "$ADX_CLUSTER" --resource-group "$AZURE_RESOURCE_GROUP" --query uri -o tsv 2>/dev/null || true)
   fi
+else
+  log "adx: skipped (PROVISION_ADX=false)"
 fi
 
 {
@@ -860,7 +880,14 @@ fi
   [[ -n "$ADX_DATABASE" ]] && echo "ADX_DATABASE=$ADX_DATABASE"
   echo "OBS_APP_ID=$APP_NAME"
   echo ""
-  echo "OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317"
+  # OTLP endpoint for Container Apps — set by deploy-observability-stack.sh (not localhost).
+  otel_ep=""
+  if az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+    cae_domain=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query properties.defaultDomain -o tsv 2>/dev/null || true)
+    [[ -n "$cae_domain" ]] && otel_ep="http://${OTEL_APP_NAME}.internal.${cae_domain}:4317"
+  fi
+  [[ -n "$otel_ep" ]] && echo "OTEL_EXPORTER_OTLP_ENDPOINT=$otel_ep"
   echo "OTEL_SERVICE_NAME=$APP_NAME"
   echo "OTEL_EXPORT_INTERVAL_MS=30000"
   echo "ENVIRONMENT=dev"
@@ -884,8 +911,12 @@ if [[ "$BUILD_IMAGES" == "true" ]]; then
   build_image_if_missing "grafana:latest" "$ROOT/Dockerfile.grafana" "$GRAFANA_APP_NAME"
 fi
 
-log "self-hosted grafana"
-deploy_grafana
+if [[ "${GRAFANA_DEFER_DEPLOY:-false}" == "true" ]]; then
+  log "grafana: deferred (run ./scripts/cloudshell-setup-complete.sh or --grafana-only)"
+else
+  log "self-hosted grafana"
+  deploy_grafana
+fi
 
 echo ""
 echo "Done"

@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/azure-deploy-common.sh
+source "$ROOT/scripts/lib/azure-deploy-common.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env.azure}"
 RECREATE=false
 SKIP_PULL=false
@@ -55,6 +57,7 @@ set +a
 ACR_NAME="${ACR_NAME:-acrtelemetrydevaj}"
 APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
 CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
+OTEL_APP_NAME="${OTEL_APP_NAME:-otel-collector-dev}"
 AZURE_LOCATION="${AZURE_LOCATION:-eastus}"
 
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
@@ -75,17 +78,24 @@ runner_serving() {
   [[ -n "$fqdn" ]] && curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null | grep -q ai_gateway
 }
 
+runner_otlp_ok() {
+  local ep
+  ep=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT'].value | [0]" -o tsv 2>/dev/null || true)
+  [[ -n "$ep" && "$ep" != *localhost* && "$ep" != *127.0.0.1* ]]
+}
+
 render_runner_yaml() {
   local dest=$1 env_id user pass eh_conn otel_ep domain eh_name
   env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
-  az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null || true
-  user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv)
-  pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv)
-  eh_conn="$EVENTHUB_CONNECTION_STRING"
+  acr_admin_credentials "$ACR_NAME"
+  user="$ACR_ADMIN_USER"
+  pass="$ACR_ADMIN_PASS"
+  eh_conn="$(awk_escape "$EVENTHUB_CONNECTION_STRING")"
   eh_name="${EVENTHUB_NAME:-ai-telemetry-events}"
-  domain=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query properties.defaultDomain -o tsv)
-  otel_ep="${OTEL_EXPORTER_OTLP_ENDPOINT:-http://${OTEL_APP_NAME:-otel-collector-dev}.internal.${domain}:4317}"
+  otel_ep="$(awk_escape "$(resolve_azure_otel_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$OTEL_APP_NAME")")"
+  user="$(awk_escape "$user")"
+  pass="$(awk_escape "$pass")"
   awk -v loc="$AZURE_LOCATION" \
       -v env_id="$env_id" \
       -v acr_server="$ACR_LOGIN_SERVER" \
@@ -166,10 +176,13 @@ if az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GRO
   log "Replicas:"
   az containerapp replica list --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" -o table 2>/dev/null \
     || log "  (no replicas)"
-  if runner_serving; then
-    log "Runner already serving metrics — nothing to do"
+  if runner_serving && runner_otlp_ok; then
+    log "Runner already serving metrics with correct OTLP endpoint — nothing to do"
     echo "Metrics: https://$(runner_fqdn)/metrics"
     exit 0
+  fi
+  if runner_serving && ! runner_otlp_ok; then
+    log "Runner serving metrics but OTLP endpoint is wrong (localhost?) — redeploying env"
   fi
   [[ "$RECREATE" != "true" ]] && RECREATE=true
 else
