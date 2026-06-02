@@ -1,3 +1,4 @@
+ARG CACHEBUST=1
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -18,6 +19,9 @@ RUN pip install --no-cache-dir -r /app/generator/requirements.txt
 
 COPY generator/ /app/generator/
 COPY observability/ /app/observability/
+
+# Fail the ACR build if the image cannot import the runner (catches missing packages early).
+RUN python3 -c "import observability; from generator.runner import main; print('runner import ok')"
 
 # Create a non-root user with no shell, then drop privileges. Container Apps
 # does not enforce non-root by default, but doing so here protects against

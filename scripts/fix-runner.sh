@@ -34,6 +34,16 @@ done
 
 log() { echo "[fix-runner] $*"; }
 
+preflight_dockerfile() {
+  if ! grep -q 'COPY observability/' "$ROOT/Dockerfile.runner"; then
+    log "ERROR: Dockerfile.runner is missing 'COPY observability/' — run: git pull"
+    exit 1
+  fi
+  if ! grep -q 'runner import ok' "$ROOT/Dockerfile.runner"; then
+    log "WARN: Dockerfile.runner has no build-time import check — git pull recommended"
+  fi
+}
+
 if [[ "$SKIP_PULL" != "true" && -d "$ROOT/.git" ]]; then
   log "Updating repo..."
   git -C "$ROOT" pull --ff-only origin master 2>/dev/null \
@@ -143,6 +153,17 @@ diagnose_runner_failure() {
   log "  1. git pull && ./scripts/fix-runner.sh --recreate --build"
   log "  2. Check .env.azure has EVENTHUB_NAMESPACE + EVENTHUB_CONNECTION_STRING + EVENTHUB_NAME"
   log "  3. Close other Cloud Shell tabs; wait 2 min if ContainerAppOperationInProgress"
+  log "  4. Console Traceback with 'No module named observability' → rebuild image (git pull first)"
+  local console_log
+  console_log=$(az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --type console --tail 50 2>/dev/null || true)
+  if echo "$console_log" | grep -q 'No module named .observability'; then
+    log "DETECTED: ModuleNotFoundError observability — image built from old Dockerfile"
+    log "  Fix: cd ~/observability && git pull && ./scripts/fix-runner.sh --recreate --build"
+  fi
+  if echo "$console_log" | grep -q 'Runner crashed during startup'; then
+    log "DETECTED: startup exception in console logs (see Traceback above)"
+  fi
 }
 
 wait_for_provisioning() {
@@ -204,9 +225,12 @@ wait_for_runner() {
 log "Runner repair: $APP_NAME in $AZURE_RESOURCE_GROUP"
 
 if [[ "$BUILD_IMAGE" == "true" ]] || ! az acr repository show --name "$ACR_NAME" --image ai-telemetry-runner:latest >/dev/null 2>&1; then
+  preflight_dockerfile
   log "Building $ACR_NAME/ai-telemetry-runner:latest in ACR (~5–12 min on first run) ..."
   log "  (apt/debconf lines during build are normal — wait for 'Run ID' to finish)"
+  log "  (expect steps: COPY observability/ then RUN python3 ... runner import ok)"
   az acr build --registry "$ACR_NAME" --platform linux/amd64 \
+    --build-arg "CACHEBUST=$(date +%s)" \
     --image "ai-telemetry-runner:latest" -f "$ROOT/Dockerfile.runner" "$ROOT"
 fi
 

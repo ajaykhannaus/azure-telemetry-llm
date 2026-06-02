@@ -268,6 +268,17 @@ az containerapp logs show -n "$RUNNER" -g "$RG" --type system --tail 20
 
 Look for `Runner starting`, Event Hub errors, `Publisher misconfigured`, or **`ModuleNotFoundError: No module named 'observability'`** (rebuild runner image: `./scripts/fix-runner.sh --recreate --build`).
 
+**Verify your clone has the fixed Dockerfile before rebuilding:**
+
+```bash
+cd ~/observability && git pull
+grep 'COPY observability/' Dockerfile.runner
+grep 'runner import ok' Dockerfile.runner
+git log -1 --oneline
+```
+
+During ACR build you must see **`COPY observability/`** and **`runner import ok`** — if build jumps from `COPY generator/` straight to `useradd`, you are on an old Dockerfile.
+
 **While runner polls `/metrics`:** `waiting (4/40) — HTTP 404` or `HTTP 000` is **normal for 2–5 min** while the image pulls and the replica starts.
 
 ---

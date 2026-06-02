@@ -398,4 +398,9 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        raise SystemExit(main())
+    except Exception:
+        logging.basicConfig(level=logging.ERROR, stream=sys.stderr)
+        logging.exception("Runner crashed during startup")
+        raise SystemExit(1)
