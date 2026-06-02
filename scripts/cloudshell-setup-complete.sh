@@ -49,10 +49,10 @@ export WRITE_ENV_FILE="$ENV_FILE"
 chmod +x "$ROOT/scripts/"*.sh
 
 log "Step 1/5 — Runner (metrics + Event Hub)"
-"$ROOT/scripts/fix-runner.sh" --no-git-pull --build
+"$ROOT/scripts/fix-runner.sh" --no-git-pull ${FORCE_IMAGE_BUILD:+--build}
 
 log "Step 2/5 — Observability backend (Loki, Tempo, Prometheus, OTel Collector)"
-"$ROOT/scripts/deploy-observability-stack.sh" --no-git-pull --build
+"$ROOT/scripts/deploy-observability-stack.sh" --no-git-pull ${FORCE_IMAGE_BUILD:+--build}
 
 log "Step 3/5 — Runner OTLP → collector (included in obs-stack)"
 # deploy-observability-stack wires OTLP by default

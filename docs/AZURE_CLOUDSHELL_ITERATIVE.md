@@ -316,6 +316,17 @@ flowchart TD
   H --> G
 ```
 
+**First run:** ~20–35 min (ACR builds runner/tempo/collector/prometheus images).
+
+**While `cloudshell-setup-complete.sh` runs:** Step 1 may show `apt-get` / `debconf` output — that is **ACR building the runner Docker image** in Azure (not your Cloud Shell VM). Orange `debconf: unable to initialize frontend` lines are **harmless**; wait until the build finishes.
+
+Force rebuild all images:
+
+```bash
+export FORCE_IMAGE_BUILD=true
+./scripts/cloudshell-setup-complete.sh
+```
+
 **Minimum loop after code changes:**
 
 1. `git pull`

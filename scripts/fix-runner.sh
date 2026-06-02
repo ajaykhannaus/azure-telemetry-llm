@@ -165,7 +165,8 @@ wait_for_runner() {
 log "Runner repair: $APP_NAME in $AZURE_RESOURCE_GROUP"
 
 if [[ "$BUILD_IMAGE" == "true" ]] || ! az acr repository show --name "$ACR_NAME" --image ai-telemetry-runner:latest >/dev/null 2>&1; then
-  log "Building $ACR_NAME/ai-telemetry-runner:latest ..."
+  log "Building $ACR_NAME/ai-telemetry-runner:latest in ACR (~5–12 min on first run) ..."
+  log "  (apt/debconf lines during build are normal — wait for 'Run ID' to finish)"
   az acr build --registry "$ACR_NAME" --platform linux/amd64 \
     --image "ai-telemetry-runner:latest" -f "$ROOT/Dockerfile.runner" "$ROOT"
 fi

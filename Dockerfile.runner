@@ -3,6 +3,7 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Build deps for confluent-kafka C extension (librdkafka)
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
         gcc \
         libssl-dev \
