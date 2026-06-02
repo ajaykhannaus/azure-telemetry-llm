@@ -352,6 +352,16 @@ cmd_verify() {
   log "Container App status: $status"
   log "Metrics URL: https://${fqdn}/metrics"
   curl -sf "https://${fqdn}/metrics" | grep -m3 ai_gateway || log "WARN: no ai_gateway metrics yet (wait ~2 min)"
+
+  grafana_app="${GRAFANA_APP_NAME:-grafana-telemetry-dev}"
+  if az containerapp show --name "$grafana_app" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+    grafana_fqdn=$(az containerapp show --name "$grafana_app" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.configuration.ingress.fqdn" -o tsv)
+    log "Grafana URL: https://${grafana_fqdn}"
+    curl -sf --max-time 15 "https://${grafana_fqdn}/api/health" >/dev/null \
+      && log "Grafana health: ok" \
+      || log "WARN: Grafana returns 404 or not ready — run: GRAFANA_RECREATE=true ./scripts/bootstrap-azure.sh --grafana-only"
+  fi
 }
 
 usage() {

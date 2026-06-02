@@ -126,6 +126,49 @@ containerapp_running() {
     --query "properties.runningStatus" -o tsv 2>/dev/null || echo "Missing")" == "Running" ]]
 }
 
+containerapp_fqdn() {
+  az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true
+}
+
+containerapp_serving() {
+  local fqdn
+  fqdn=$(containerapp_fqdn "$1")
+  [[ -n "$fqdn" ]] && curl -sf --max-time 15 "https://${fqdn}/api/health" >/dev/null 2>&1
+}
+
+ensure_grafana_acr_pull() {
+  local principal_id acr_id
+  principal_id=$(az containerapp show \
+    --name "$GRAFANA_APP_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query identity.principalId -o tsv 2>/dev/null || true)
+  [[ -z "$principal_id" ]] && return 0
+  acr_id=$(az acr show --name "$ACR_NAME" --query id -o tsv)
+  az role assignment create \
+    --assignee "$principal_id" \
+    --role AcrPull \
+    --scope "$acr_id" --output none 2>/dev/null || true
+}
+
+wait_for_grafana() {
+  local fqdn i
+  fqdn=$(containerapp_fqdn "$GRAFANA_APP_NAME")
+  [[ -z "$fqdn" ]] && { log "WARN: Grafana has no ingress FQDN"; return 1; }
+  for i in $(seq 1 20); do
+    if curl -sf --max-time 15 "https://${fqdn}/api/health" >/dev/null 2>&1; then
+      log "grafana: healthy at https://${fqdn}"
+      return 0
+    fi
+    log "grafana: waiting for https://${fqdn}/api/health ($i/20)..."
+    sleep 15
+  done
+  log "WARN: Grafana not responding — check replicas and logs:"
+  log "  az containerapp replica list -n $GRAFANA_APP_NAME -g $AZURE_RESOURCE_GROUP -o table"
+  log "  az containerapp logs show -n $GRAFANA_APP_NAME -g $AZURE_RESOURCE_GROUP --type console --tail 40"
+  return 1
+}
+
 acr_image_exists() {
   az acr repository show --name "$ACR_NAME" --image "$1" >/dev/null 2>&1
 }
@@ -161,26 +204,33 @@ deploy_grafana() {
   local grafana_image="$ACR_LOGIN_SERVER/grafana:latest"
   local admin_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
 
-  if containerapp_exists "$GRAFANA_APP_NAME" \
-      && containerapp_running "$GRAFANA_APP_NAME" \
-      && [[ "${FORCE_CONTAINER_DEPLOY:-false}" != "true" ]]; then
-    log "grafana: reuse $GRAFANA_APP_NAME — already running"
-    GRAFANA_URL=$(az containerapp show \
+  if [[ "${GRAFANA_RECREATE:-false}" == "true" ]] && containerapp_exists "$GRAFANA_APP_NAME"; then
+    log "grafana: delete $GRAFANA_APP_NAME (GRAFANA_RECREATE=true)"
+    az containerapp delete \
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
-      --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-    [[ -n "$GRAFANA_URL" ]] && GRAFANA_URL="https://${GRAFANA_URL}"
+      --yes --output none
+  fi
+
+  if containerapp_exists "$GRAFANA_APP_NAME" \
+      && containerapp_serving "$GRAFANA_APP_NAME" \
+      && [[ "${FORCE_CONTAINER_DEPLOY:-false}" != "true" ]]; then
+    log "grafana: reuse $GRAFANA_APP_NAME — already serving traffic"
+    GRAFANA_URL="https://$(containerapp_fqdn "$GRAFANA_APP_NAME")"
     write_grafana_env
     return 0
   fi
 
-  local prom_fqdn prom_url env_id rendered
-  prom_fqdn=$(az containerapp show \
-    --name "$PROM_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+  if containerapp_exists "$GRAFANA_APP_NAME" && containerapp_running "$GRAFANA_APP_NAME"; then
+    log "WARN: $GRAFANA_APP_NAME is Running in Azure but returns 404 — redeploying"
+  fi
+
+  local prom_fqdn prom_url runner_fqdn env_id rendered
+  prom_fqdn=$(containerapp_fqdn "$PROM_APP_NAME")
+  runner_fqdn=$(containerapp_fqdn "$APP_NAME")
   prom_url="http://prometheus:9090"
   [[ -n "$prom_fqdn" ]] && prom_url="https://${prom_fqdn}"
+  [[ -z "$prom_fqdn" && -n "$runner_fqdn" ]] && prom_url="https://${runner_fqdn}"
   env_id=$(az containerapp env show \
     --name "$CAE_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -196,7 +246,8 @@ deploy_grafana() {
     "$ROOT/infra/grafana.template.yaml" > "$rendered"
 
   if containerapp_exists "$GRAFANA_APP_NAME"; then
-    log "grafana: update $GRAFANA_APP_NAME (not running or forced)"
+    log "grafana: update $GRAFANA_APP_NAME (not serving or forced)"
+    ensure_grafana_acr_pull
     az containerapp update \
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -207,29 +258,17 @@ deploy_grafana() {
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --yaml "$rendered" --output none
-    local principal_id acr_id
-    principal_id=$(az containerapp show \
-      --name "$GRAFANA_APP_NAME" \
-      --resource-group "$AZURE_RESOURCE_GROUP" \
-      --query identity.principalId -o tsv)
-    acr_id=$(az acr show --name "$ACR_NAME" --query id -o tsv)
-    az role assignment create \
-      --assignee "$principal_id" \
-      --role AcrPull \
-      --scope "$acr_id" --output none 2>/dev/null || true
+    ensure_grafana_acr_pull
     az containerapp update \
       --name "$GRAFANA_APP_NAME" \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --yaml "$rendered" --output none
   fi
 
-  GRAFANA_URL=$(az containerapp show \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-  [[ -n "$GRAFANA_URL" ]] && GRAFANA_URL="https://${GRAFANA_URL}"
+  GRAFANA_URL="https://$(containerapp_fqdn "$GRAFANA_APP_NAME")"
   write_grafana_env
   rm -f "$rendered"
+  wait_for_grafana || true
 }
 
 if [[ "$GRAFANA_ONLY" == "true" ]]; then

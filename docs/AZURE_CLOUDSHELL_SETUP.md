@@ -228,7 +228,7 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 | Deploy fails on Event Hub | Re-run command 11 |
 | `SecretRef 'eventhub-namespace' not found` | `git pull` then re-run command 14 |
 | Deploy seems slow (10–15 min) | Normal on first create; use command 14b in a second tab |
-| Grafana **404** / app stopped | Commands 16–18 below |
+| Grafana **404** / app stopped | Commands 16–19 below — `Running` ≠ serving traffic |
 
 ---
 
@@ -257,10 +257,24 @@ Wait ~2–3 min, then open the `Grafana:` URL printed at the end.
 ### Command 18 — if Grafana still 404 (check logs)
 
 ```bash
+az containerapp replica list -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg -o table
 az containerapp logs show -n grafana-telemetry-dev -g az03-al-titan-sandbox-rg --type console --tail 40
 ```
 
-Or redeploy everything (runner + Grafana + verify):
+### Command 19 — force recreate Grafana (404 but status shows Running)
+
+`Running` in Azure can still return **404** if no healthy replica is serving traffic (often image pull or crash on start).
+
+```bash
+git pull
+export GRAFANA_RECREATE=true
+export FORCE_IMAGE_BUILD=true
+./scripts/bootstrap-azure.sh --grafana-only
+```
+
+Wait until you see `grafana: healthy at https://...` then open that URL (login: **admin** / **admin**).
+
+Or redeploy everything:
 
 ```bash
 ./scripts/cloudshell-deploy.sh

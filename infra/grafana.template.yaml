@@ -44,6 +44,31 @@ properties:
             value: "%(protocol)s://%(domain)s/"
           - name: PROMETHEUS_URL
             value: __PROMETHEUS_URL__
+        probes:
+          - type: Startup
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 30
+          - type: Liveness
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          - type: Readiness
+            httpGet:
+              path: /api/health
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
     scale:
       minReplicas: 1
       maxReplicas: 1
