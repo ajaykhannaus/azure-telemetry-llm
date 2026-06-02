@@ -255,6 +255,7 @@ Bootstrap and deploy **reuse** same-named resources — they do not create dupli
 | `SecretRef 'eventhub-namespace' not found` | `git pull` then re-run command 14 |
 | Deploy seems slow (10–15 min) | Normal on first create; use command 14b in a second tab |
 | Grafana **404** / app stopped | Command 19 (`fix-grafana.sh`) or 19b (`fix-grafana-acr.sh`) |
+| Runner **404** / no metrics | Command 21 (`fix-runner.sh`) |
 | `AuthorizationFailed` / async hash on create | Close other Cloud Shell tabs; wait 2 min; re-run command 19 |
 | `Operation expired` on revision | Normal on slow sandbox — re-run command 19; script now polls up to 10 min |
 
@@ -395,6 +396,34 @@ export FORCE_CONTAINER_DEPLOY=true
 
 ---
 
+### Command 21 — fix runner 404 (no `/metrics`)
+
+Same root cause as Grafana: **ACR image pull failed** (app shows `Running` but has no healthy replicas).
+
+```bash
+git pull
+chmod +x scripts/fix-runner.sh
+./scripts/fix-runner.sh
+```
+
+**Success:** `Runner is healthy: https://.../metrics`
+
+If image missing, add `--build`:
+
+```bash
+./scripts/fix-runner.sh --build
+```
+
+Then verify + refresh Grafana dashboards:
+
+```bash
+RUNNER_FQDN=$(az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
+```
+
+---
+
 ## Scripts (all in repo)
 
 | Script | Purpose |
@@ -403,5 +432,6 @@ export FORCE_CONTAINER_DEPLOY=true
 | `scripts/bootstrap-azure.sh` | Create Azure resources |
 | `scripts/cloudshell-deploy.sh` | Deploy app from Cloud Shell |
 | `scripts/fix-grafana.sh` | Diagnose + repair Grafana 404 |
-| `scripts/fix-grafana-acr.sh` | Fix ACR 401 / image pull (no delete/recreate) |
+| `scripts/fix-grafana-acr.sh` | Fix Grafana ACR 401 / image pull (no delete/recreate) |
+| `scripts/fix-runner.sh` | Fix runner 404 / ACR pull (recreate with admin auth) |
 | `infra/adx-schema.kql` | ADX database tables |

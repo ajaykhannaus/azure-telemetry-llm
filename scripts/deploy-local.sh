@@ -266,13 +266,19 @@ cmd_deploy() {
   log "Rendered $rendered"
 
   if containerapp_exists "$APP_NAME"; then
-    log "reuse $APP_NAME — skipping deploy"
-    if [[ "${FORCE_CONTAINER_DEPLOY:-false}" == "true" ]]; then
-      log "FORCE_CONTAINER_DEPLOY=true — updating $APP_NAME ..."
+    fqdn=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+    if [[ -n "$fqdn" ]] && curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null | grep -q ai_gateway \
+        && [[ "${FORCE_CONTAINER_DEPLOY:-false}" != "true" ]]; then
+      log "reuse $APP_NAME — already serving /metrics"
+    elif [[ "${FORCE_CONTAINER_DEPLOY:-false}" == "true" ]] || [[ -n "$fqdn" ]]; then
+      log "Updating $APP_NAME (not serving or forced) ..."
       az containerapp update \
         --name "$APP_NAME" \
         --resource-group "$AZURE_RESOURCE_GROUP" \
         --yaml "$rendered"
+    else
+      log "reuse $APP_NAME — skipping deploy"
     fi
   else
     log "Creating $APP_NAME ..."
