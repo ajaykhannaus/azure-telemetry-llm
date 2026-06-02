@@ -323,9 +323,13 @@ Optional — try managed identity first (slower, often fails in sandbox):
 ./scripts/fix-grafana-acr.sh --try-managed-identity
 ```
 
-**If you see `ContainerAppOperationInProgress`:** Azure is still finishing a prior change (often from registry remove). Close other Cloud Shell tabs, wait **2 minutes**, pull latest, and re-run command 19b — the script now waits and retries automatically.
+**If you see `ContainerAppSecretRefNotFound` / `grafana-admin-password` not found:** Pull latest — scripts preserve `grafana-admin-password` when updating registry auth.
 
-**If you see `ContainerAppSecretRefNotFound` / `grafana-admin-password` not found:** Pull latest — `fix-grafana-acr.sh` sets both Grafana and ACR secrets together.
+**If you see `AuthorizationFailed` on AcrPull:** Your account cannot assign RBAC roles — that is OK in sandbox. Pull latest and run command 19b; scripts use **ACR admin credentials** instead (no AcrPull needed).
+
+**If you see `unrecognized arguments: --password-secret`:** Pull latest — fixed to use `--password` (Cloud Shell CLI version).
+
+**If you see `ContainerAppOperationInProgress`:** Azure is still finishing a prior change (often from registry remove). Close other Cloud Shell tabs, wait **2 minutes**, pull latest, and re-run command 19b — the script now waits and retries automatically.
 
 **If you see `waiting for provisioning` for many minutes:** The old script waited for Azure before granting ACR pull access (image pull fails without it). Pull latest code — `fix-grafana.sh` now assigns AcrPull within ~1 min, then refreshes the revision.
 

@@ -164,6 +164,10 @@ assign_acr_pull() {
     if echo "$out" | grep -qi 'RoleAssignmentExists'; then
       return 0
     fi
+    if echo "$out" | grep -qi 'AuthorizationFailed'; then
+      log "WARN: cannot assign AcrPull (no roleAssignments/write) — use admin mode"
+      return 1
+    fi
     log "ERROR: AcrPull assignment failed: $out"
     return 1
   fi
@@ -211,12 +215,12 @@ configure_acr_admin_registry() {
   pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv 2>/dev/null || true)
   [[ -n "$user" && -n "$pass" ]] || { log "ERROR: could not read ACR admin credentials"; return 1; }
 
-  log "Storing secrets (grafana-admin-password + acr-admin-password) ..."
+  log "Storing grafana-admin-password secret ..."
   retry_containerapp "secret set" \
     az containerapp secret set \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
-    --secrets "grafana-admin-password=$grafana_pass" "acr-admin-password=$pass" \
+    --secrets "grafana-admin-password=$grafana_pass" \
     --output none
 
   wait_for_app_idle
@@ -228,7 +232,7 @@ configure_acr_admin_registry() {
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --server "$ACR_LOGIN_SERVER" \
     --username "$user" \
-    --password-secret acr-admin-password
+    --password "$pass"
   show_registry_config
   log "ACR admin registry configured (no managed identity)"
   return 0

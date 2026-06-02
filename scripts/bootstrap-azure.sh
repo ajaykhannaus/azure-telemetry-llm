@@ -241,9 +241,11 @@ assign_grafana_acr_pull() {
       log "grafana: AcrPull already assigned (concurrent)"
       return 0
     fi
+    if echo "$out" | grep -qi 'AuthorizationFailed'; then
+      log "WARN: cannot assign AcrPull (no roleAssignments/write permission) — will use ACR admin credentials"
+      return 1
+    fi
     log "ERROR: AcrPull assignment failed: $out"
-    log "  Ask an admin to run:"
-    log "  az role assignment create --assignee-object-id $principal_id --assignee-principal-type ServicePrincipal --role AcrPull --scope $acr_id"
     return 1
   fi
   log "grafana: AcrPull role assignment created"
@@ -278,7 +280,7 @@ strip_registries_from_yaml() {
 }
 
 configure_grafana_acr_admin() {
-  local user pass out
+  local user pass out grafana_pass attempt
   [[ "${GRAFANA_ACR_ADMIN_FALLBACK:-true}" == "true" ]] || return 1
   log "grafana: using ACR admin credentials (sandbox fallback)..."
   if ! az acr update --name "$ACR_NAME" --admin-enabled true --output none 2>/dev/null; then
@@ -288,29 +290,58 @@ configure_grafana_acr_admin() {
   user=$(az acr credential show --name "$ACR_NAME" --query username -o tsv 2>/dev/null || true)
   pass=$(az acr credential show --name "$ACR_NAME" --query 'passwords[0].value' -o tsv 2>/dev/null || true)
   [[ -n "$user" && -n "$pass" ]] || return 1
-  local grafana_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
-  az containerapp secret set \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --secrets "grafana-admin-password=$grafana_pass" "acr-admin-password=$pass" \
-    --output none
-  if ! out=$(az containerapp registry set \
-    --name "$GRAFANA_APP_NAME" \
-    --resource-group "$AZURE_RESOURCE_GROUP" \
-    --server "$ACR_LOGIN_SERVER" \
-    --username "$user" \
-    --password-secret acr-admin-password 2>&1); then
+  grafana_pass="${GRAFANA_ADMIN_PASSWORD:-admin}"
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if az containerapp secret set \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --secrets "grafana-admin-password=$grafana_pass" \
+      --output none 2>/dev/null; then
+      break
+    fi
+    out=$(az containerapp secret set \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --secrets "grafana-admin-password=$grafana_pass" \
+      --output none 2>&1 || true)
+    if echo "$out" | grep -qiE 'OperationInProgress|active provisioning'; then
+      log "grafana: secret set busy ($attempt/12) — wait 30s"
+      sleep 30
+      [[ "$attempt" -lt 12 ]] && continue
+    fi
+    log "ERROR: secret set failed: $out"
+    return 1
+  done
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    if out=$(az containerapp registry set \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --server "$ACR_LOGIN_SERVER" \
+      --username "$user" \
+      --password "$pass" 2>&1); then
+      GRAFANA_REGISTRY_MODE=admin
+      log "grafana: ACR admin registry configured"
+      return 0
+    fi
+    if echo "$out" | grep -qiE 'OperationInProgress|active provisioning'; then
+      log "grafana: registry set busy ($attempt/12) — wait 30s"
+      sleep 30
+      continue
+    fi
     log "ERROR: ACR admin registry set failed: $out"
     return 1
-  fi
-  GRAFANA_REGISTRY_MODE=admin
-  log "grafana: ACR admin registry configured"
-  return 0
+  done
+  log "ERROR: ACR admin registry set timed out"
+  return 1
 }
 
 ensure_grafana_acr_pull() {
   local principal_id acr_id
   GRAFANA_REGISTRY_MODE=mi
+  if [[ "${GRAFANA_ACR_USE_ADMIN:-true}" == "true" ]]; then
+    configure_grafana_acr_admin && return 0
+    return 1
+  fi
   principal_id=$(az containerapp show \
     --name "$GRAFANA_APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
