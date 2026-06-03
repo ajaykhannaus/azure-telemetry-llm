@@ -1,14 +1,17 @@
 # OpenTelemetry Collector image — Bucket 1.
-# Uses the upstream contrib distribution so the tail_sampling, loki, and
-# prometheusremotewrite exporters are available out of the box.
-FROM otel/opentelemetry-collector-contrib:0.111.0
+# Upstream contrib image is distroless (no shell, no root in passwd).
+# Use Alpine for entrypoint env substitution, copy the static otelcol binary.
+FROM otel/opentelemetry-collector-contrib:0.111.0 AS otel
 
+FROM alpine:3.20
+
+RUN apk add --no-cache ca-certificates
+
+COPY --from=otel /otelcol-contrib /otelcol-contrib
 COPY infra/otel-collector-azure-config.yaml /etc/otelcol-contrib/config.yaml
-COPY azure/otel-collector-entrypoint.sh /otel-collector-entrypoint.sh
+COPY --chmod=755 azure/otel-collector-entrypoint.sh /otel-collector-entrypoint.sh
 
-USER root
-RUN chmod +x /otel-collector-entrypoint.sh
-USER 10001
+USER 65534:65534
 
 EXPOSE 4317 4318 8888 13133
 
