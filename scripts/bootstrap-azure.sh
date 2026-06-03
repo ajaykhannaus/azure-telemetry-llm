@@ -2,6 +2,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/azure-deploy-common.sh
+source "$ROOT/scripts/lib/azure-deploy-common.sh"
 CONFIG="${BOOTSTRAP_CONFIG:-$ROOT/azure/bootstrap-azure.env}"
 SKIP_BUILD=false
 CLI_PREFLIGHT=false
@@ -603,24 +605,12 @@ render_grafana_standard_yaml() {
 }
 
 resolve_grafana_datasource_urls() {
-  local prom_fqdn runner_fqdn loki_fqdn tempo_fqdn
-  prom_fqdn=$(containerapp_fqdn "$PROM_APP_NAME")
-  runner_fqdn=$(containerapp_fqdn "$APP_NAME")
-  loki_fqdn=$(containerapp_fqdn "$LOKI_APP_NAME")
-  tempo_fqdn=$(containerapp_fqdn "$TEMPO_APP_NAME")
+  read -r GRAFANA_PROM_URL GRAFANA_LOKI_URL GRAFANA_TEMPO_URL < <(grafana_datasource_urls \
+    "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$PROM_APP_NAME" "$LOKI_APP_NAME" "$TEMPO_APP_NAME")
 
-  GRAFANA_PROM_URL="${PROMETHEUS_URL:-}"
-  [[ -z "$GRAFANA_PROM_URL" && -n "$prom_fqdn" ]] && GRAFANA_PROM_URL="https://${prom_fqdn}"
-  [[ -z "$GRAFANA_PROM_URL" && -n "$runner_fqdn" ]] && GRAFANA_PROM_URL="https://${runner_fqdn}"
-  [[ -z "$GRAFANA_PROM_URL" ]] && GRAFANA_PROM_URL="http://prometheus:9090"
-
-  GRAFANA_LOKI_URL="${LOKI_URL:-}"
-  [[ -z "$GRAFANA_LOKI_URL" && -n "$loki_fqdn" ]] && GRAFANA_LOKI_URL="https://${loki_fqdn}"
-  [[ -z "$GRAFANA_LOKI_URL" ]] && GRAFANA_LOKI_URL="http://loki:3100"
-
-  GRAFANA_TEMPO_URL="${TEMPO_URL:-}"
-  [[ -z "$GRAFANA_TEMPO_URL" && -n "$tempo_fqdn" ]] && GRAFANA_TEMPO_URL="https://${tempo_fqdn}"
-  [[ -z "$GRAFANA_TEMPO_URL" ]] && GRAFANA_TEMPO_URL="http://tempo:3200"
+  [[ -n "$GRAFANA_PROM_URL" ]] || GRAFANA_PROM_URL="http://prometheus:9090"
+  [[ -n "$GRAFANA_LOKI_URL" ]] || GRAFANA_LOKI_URL="http://loki:3100"
+  [[ -n "$GRAFANA_TEMPO_URL" ]] || GRAFANA_TEMPO_URL="http://tempo:3200"
 
   log "grafana datasources: prom=$GRAFANA_PROM_URL loki=$GRAFANA_LOKI_URL tempo=$GRAFANA_TEMPO_URL"
 }

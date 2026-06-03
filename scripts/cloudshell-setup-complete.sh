@@ -82,6 +82,9 @@ if [[ "$need_grafana" == "true" ]]; then
   "$ROOT/scripts/bootstrap-azure.sh" --grafana-only --no-build
 fi
 
+log "Step 4b/5 — Grafana datasource URLs"
+"$ROOT/scripts/fix-grafana-datasources.sh"
+
 log "Step 5/5 — Verify"
 "$ROOT/scripts/verify-observability.sh"
 

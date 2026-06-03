@@ -234,9 +234,8 @@ skip_if_healthy() {
 
 write_datasource_env() {
   local prom_url loki_url tempo_url otel_endpoint
-  prom_url="http://$(internal_host "$PROM_APP_NAME"):9090"
-  loki_url="http://$(internal_host "$LOKI_APP_NAME"):3100"
-  tempo_url="http://$(internal_host "$TEMPO_APP_NAME"):3200"
+  read -r prom_url loki_url tempo_url < <(grafana_datasource_urls \
+    "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$PROM_APP_NAME" "$LOKI_APP_NAME" "$TEMPO_APP_NAME")
   otel_endpoint="http://$(internal_host "$OTEL_APP_NAME"):4317"
 
   log "Datasource URLs:"

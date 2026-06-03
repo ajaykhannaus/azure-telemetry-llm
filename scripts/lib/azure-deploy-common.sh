@@ -40,6 +40,41 @@ runner_metrics_ok() {
   echo "$body" | grep -qE 'ai_gateway|kube_pod_info|ai_telemetry_runner|# TYPE|# HELP'
 }
 
+# HTTPS URL for a Container App on internal ingress (same CAE as Grafana).
+cae_internal_https_url() {
+  local app=$1 cae_name=$2 rg=$3
+  local domain
+  domain=$(az containerapp env show --name "$cae_name" --resource-group "$rg" \
+    --query properties.defaultDomain -o tsv 2>/dev/null || true)
+  [[ -n "$domain" ]] || return 1
+  echo "https://${app}.internal.${domain}"
+}
+
+grafana_datasource_urls() {
+  local cae_name=$1 rg=$2 prom_app=$3 loki_app=$4 tempo_app=$5
+  local prom="${PROMETHEUS_URL:-}" loki="${LOKI_URL:-}" tempo="${TEMPO_URL:-}"
+
+  if [[ -z "$prom" ]]; then
+    prom=$(cae_internal_https_url "$prom_app" "$cae_name" "$rg" || true)
+  fi
+  if [[ -z "$loki" ]]; then
+    loki=$(cae_internal_https_url "$loki_app" "$cae_name" "$rg" || true)
+  fi
+  if [[ -z "$tempo" ]]; then
+    tempo=$(cae_internal_https_url "$tempo_app" "$cae_name" "$rg" || true)
+  fi
+
+  # Legacy deploys used http://*.internal.*:port — normalize to ingress HTTPS.
+  prom="${prom/http:\/\//https:\/\/}"
+  prom="${prom/:9090/}"
+  loki="${loki/http:\/\//https:\/\/}"
+  loki="${loki/:3100/}"
+  tempo="${tempo/http:\/\//https:\/\/}"
+  tempo="${tempo/:3200/}"
+
+  printf '%s\n' "$prom" "$loki" "$tempo"
+}
+
 prometheus_deploy_sandbox() {
   local prom_app=$1 cae_name=$2 rg=$3 acr_name=$4 acr_login=$5 runner_fqdn=$6
   local user pass
