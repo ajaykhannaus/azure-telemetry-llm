@@ -1,6 +1,13 @@
 # Grafana image with AI Telemetry dashboards + datasources pre-provisioned.
-# Dashboard JSON is baked at build time with prometheus-ds/loki-ds/tempo-ds UIDs
-# so file provisioning does not ship broken ${DS_PROMETHEUS} placeholders.
+# Dashboard JSON is baked in a Python stage (grafana base has no python3).
+FROM python:3.12-alpine AS dashboard-baker
+
+WORKDIR /src
+COPY dashboards/*.json /src/dashboards/
+COPY scripts/bake_grafana_dashboards.py scripts/setup_grafana_local.py /src/scripts/
+
+RUN python3 /src/scripts/bake_grafana_dashboards.py /out
+
 FROM grafana/grafana:11.3.0
 
 COPY dashboards/provisioning/datasources.yaml \
@@ -9,10 +16,7 @@ COPY dashboards/provisioning/datasources.yaml \
 COPY dashboards/provisioning/dashboards.yaml \
      /etc/grafana/provisioning/dashboards/dashboards.yaml
 
-COPY dashboards/*.json /src/dashboards/
-COPY scripts/bake_grafana_dashboards.py scripts/setup_grafana_local.py /src/scripts/
-
-RUN python3 /src/scripts/bake_grafana_dashboards.py /var/lib/grafana/dashboards
+COPY --from=dashboard-baker /out/ /var/lib/grafana/dashboards/
 
 ENV GF_PATHS_PROVISIONING=/etc/grafana/provisioning \
     GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_UID=ai-telemetry-executive \
