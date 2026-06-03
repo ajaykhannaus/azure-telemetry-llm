@@ -237,8 +237,8 @@ RUNNER_FQDN=$(az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-s
 curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
 
 # Runner log viewers (client demo)
-echo "Formatted: https://${RUNNER_FQDN}/telemetry/logs"
-echo "Raw stdout: https://${RUNNER_FQDN}/telemetry/logs/raw"
+echo "App logs:  https://${RUNNER_FQDN}/telemetry/logs/raw"
+echo "JSON logs: https://${RUNNER_FQDN}/telemetry/logs/json"
 curl -sf "https://${RUNNER_FQDN}/telemetry/logs/raw" | tail -5
 ```
 

@@ -1,4 +1,4 @@
-"""Tests for telemetry log buffer and runner HTTP endpoints."""
+"""Tests for plain application logs and HTTP log endpoints."""
 from __future__ import annotations
 
 import json
@@ -6,7 +6,7 @@ import time
 import urllib.error
 import urllib.request
 
-from generator import runner_http
+from generator import plain_app_logs, runner_http
 from generator.telemetry_log_buffer import TelemetryLogBuffer, buffer
 
 
@@ -29,31 +29,50 @@ def _get(url: str, headers: dict[str, str] | None = None) -> tuple[int, bytes, s
         return exc.code, exc.read(), exc.headers.get("Content-Type", "")
 
 
-def test_buffer_raw_and_formatted_filter():
+def test_plain_request_line_looks_like_app_log():
+    line = plain_app_logs.format_request_line({
+        "request_id": "a8702644-a880-4c22-8e2d-9e4e13c0b25a",
+        "trace_id": "127d86aa370614d7a742483b7a1ed71e",
+        "client_name": "healthcare-portal",
+        "model_name": "claude-haiku-3-5",
+        "operation_name": "clinical_note_analysis",
+        "latency_ms": 678.21,
+        "total_tokens": 739,
+        "cost_usd": 0.00120152,
+        "status": "success",
+        "http_status_code": 200,
+        "streaming": False,
+    })
+    assert "InferenceService" in line
+    assert "healthcare-portal" in line
+    assert "/v1/clinical/analyze" in line
+    assert "latencyMs=678" in line
+    assert "{" not in line
+
+
+def test_buffer_plain_and_json_separate():
     buf = TelemetryLogBuffer(max_size=10)
-    buf.append_raw(json.dumps({"message": "batch done", "level": "INFO"}))
-    buf.append_raw(json.dumps({
-        "message": "telemetry_event",
-        "event_type": "telemetry_event",
-        "request_id": "abc",
-        "model_name": "gpt-4o",
-    }))
+    buf.append_plain("2026-06-03 12:00:00.000  INFO app : request done")
+    buf.append_raw(json.dumps({"message": "telemetry_event", "event_type": "telemetry_event"}))
 
-    raw = buf.raw_lines(10)
-    assert "batch done" in raw
-    assert "telemetry_event" in raw
-
-    formatted = buf.formatted(10)
-    assert len(formatted) == 1
-    assert formatted[0]["request_id"] == "abc"
+    assert "request done" in buf.plain_lines(10)
+    assert "telemetry_event" in buf.raw_lines(10)
+    assert "request done" not in buf.raw_lines(10)
 
 
-def test_runner_http_telemetry_endpoints():
+def test_runner_http_plain_raw_endpoint():
     runner_http._started = False
     runner_http._server = None
+    buffer._plain.clear()
     buffer._raw.clear()
     buffer._parsed.clear()
 
+    buffer.append_plain(
+        "2026-06-03 12:00:00.000  INFO 28372 --- [http-nio-8080-exec-1] "
+        "c.e.ai.gateway.InferenceService : /v1/chat/completions completed "
+        "status=200 latencyMs=120 tenant=demo-client model=claude-sonnet "
+        "tokens=100 costUsd=0.001000 requestId=req-1 traceId=abcd1234",
+    )
     buffer.append_raw(json.dumps({
         "timestamp": "2026-06-01T12:00:00+00:00",
         "message": "telemetry_event",
@@ -65,7 +84,6 @@ def test_runner_http_telemetry_endpoints():
         "latency_ms": 120,
         "cost_usd": 0.001,
     }))
-    buffer.append_raw(json.dumps({"message": "noise", "level": "INFO"}))
 
     port = _free_port()
     server = runner_http.start(port)
@@ -76,21 +94,18 @@ def test_runner_http_telemetry_endpoints():
         status, body, content_type = _get(f"http://127.0.0.1:{port}/telemetry/logs/raw")
         assert status == 200
         assert "text/plain" in content_type
-        assert "req-1" in body.decode()
-        assert "noise" in body.decode()
+        text = body.decode()
+        assert "InferenceService" in text
+        assert "demo-client" in text
+        assert "{" not in text
 
-        status, body, content_type = _get(
-            f"http://127.0.0.1:{port}/telemetry/logs?format=json",
-        )
+        status, body, _ = _get(f"http://127.0.0.1:{port}/telemetry/logs/json")
         assert status == 200
-        doc = json.loads(body.decode())
-        assert doc["count"] == 1
-        assert doc["entries"][0]["request_id"] == "req-1"
+        assert '"telemetry_event"' in body.decode()
 
         status, body, content_type = _get(f"http://127.0.0.1:{port}/telemetry/logs")
         assert status == 200
         assert "text/html" in content_type
-        assert b"req-1" in body
         assert b"/telemetry/logs/raw" in body
     finally:
         server.shutdown()

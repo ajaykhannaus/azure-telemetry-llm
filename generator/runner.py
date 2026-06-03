@@ -33,6 +33,7 @@ import generator.azure_logger as azure_logger  # noqa: E402
 import generator.health_server as health_server  # noqa: E402
 import generator.otel_metrics as otel  # noqa: E402
 import generator.otel_tracing as tracing  # noqa: E402
+import generator.plain_app_logs as plain_app_logs  # noqa: E402
 import generator.pod_metrics_simulator as pod_sim  # noqa: E402
 import generator.runner_http as runner_http  # noqa: E402
 import generator.semantic_conventions as sc  # noqa: E402
@@ -206,6 +207,7 @@ def run_one_batch() -> dict[str, Any]:
                     start_ok, end_ok = _publish_event(publisher, event)
                     otel.record_metrics(event)
                     azure_logger.log_event(event)
+                    plain_app_logs.record_request(event)
 
                     _prompt_text   = event.get("prompt_text")
                     _response_text = event.get("response_text")
@@ -218,6 +220,20 @@ def run_one_batch() -> dict[str, Any]:
                             response_text=_response_text,
                             prompt_pii=ev_scanned.get("prompt_pii"),
                             response_pii=ev_scanned.get("response_pii"),
+                        )
+                        _pp = ev_scanned.get("prompt_pii")
+                        _rp = ev_scanned.get("response_pii")
+                        plain_app_logs.record_prompt_audit(
+                            ev_scanned,
+                            pii_detected=bool(
+                                (_pp.pii_detected if _pp else False)
+                                or (_rp.pii_detected if _rp else False)
+                            ),
+                            entity_counts={
+                                **(_pp.entity_counts if _pp else {}),
+                                **(_rp.entity_counts if _rp else {}),
+                            },
+                            prompt_hash=_pp.original_hash if _pp else "",
                         )
                         get_evaluator().maybe_evaluate(
                             event,
@@ -316,6 +332,7 @@ def run_one_batch() -> dict[str, Any]:
     if exhausted_clients:
         log_parts += f" budget_exhausted={exhausted_clients}"
 
+    plain_app_logs.record_batch(summary)
     logger.info(log_parts)
     return summary
 
@@ -364,6 +381,10 @@ def main() -> int:
         "environment":        os.getenv("ENVIRONMENT", "prod"),
         "eventhub_namespace": os.getenv("EVENTHUB_NAMESPACE", ""),
         "eventhub_name":      os.getenv("EVENTHUB_NAME", "ai-telemetry-events"),
+    })
+    plain_app_logs.record_startup({
+        "environment": os.getenv("ENVIRONMENT", "prod"),
+        "batch_interval_s": BATCH_INTERVAL_S,
     })
 
     logger.info(

@@ -1,7 +1,8 @@
-"""In-memory ring buffer of recent structured log lines.
+"""In-memory ring buffer of recent log lines for HTTP demo endpoints.
 
-Captures the exact JSON strings written to stdout so they can be replayed
-on HTTP endpoints for client demos (formatted view + raw Log Analytics style).
+  - plain lines  → /telemetry/logs/raw   (real-world application log text)
+  - JSON lines   → /telemetry/logs/json  (structured stdout / Log Analytics)
+  - parsed JSON  → /telemetry/logs        (formatted HTML table)
 """
 from __future__ import annotations
 
@@ -27,8 +28,24 @@ class TelemetryLogBuffer:
     def __init__(self, max_size: int = 500) -> None:
         self._max_size = max(1, max_size)
         self._lock = threading.Lock()
+        self._plain: deque[str] = deque(maxlen=self._max_size)
         self._raw: deque[str] = deque(maxlen=self._max_size)
         self._parsed: deque[dict[str, Any]] = deque(maxlen=self._max_size)
+
+    def append_plain(self, line: str) -> None:
+        line = line.rstrip("\n")
+        if not line:
+            return
+        with self._lock:
+            self._plain.append(line)
+
+    def plain_lines(self, limit: int) -> str:
+        limit = max(1, min(limit, self._max_size))
+        with self._lock:
+            lines = list(self._plain)[-limit:]
+        if not lines:
+            return ""
+        return "\n".join(lines) + "\n"
 
     def append_raw(self, line: str) -> None:
         line = line.rstrip("\n")
@@ -69,7 +86,8 @@ class TelemetryLogBuffer:
     def stats(self) -> dict[str, int]:
         with self._lock:
             return {
-                "buffered": len(self._raw),
+                "plain_buffered": len(self._plain),
+                "json_buffered": len(self._raw),
                 "capacity": self._max_size,
             }
 

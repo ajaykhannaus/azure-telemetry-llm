@@ -3,7 +3,8 @@
 Serves:
   /metrics              — Prometheus scrape endpoint
   /telemetry/logs       — formatted telemetry view (HTML or JSON)
-  /telemetry/logs/raw   — raw stdout JSON lines (Log Analytics Log_s style)
+  /telemetry/logs/raw   — plain-text application logs (real-world style)
+  /telemetry/logs/json  — structured JSON stdout (Log Analytics Log_s style)
 """
 from __future__ import annotations
 
@@ -82,9 +83,10 @@ def _format_html(entries: list[dict[str, Any]], limit: int) -> str:
 <body>
   <h1>AI Telemetry — structured log view</h1>
   <p>Parsed telemetry events for demos. Auto-refreshes every 5s. Showing up to {limit} records
-     ({stats['buffered']}/{stats['capacity']} lines buffered).</p>
+     ({stats['json_buffered']}/{stats['capacity']} JSON lines buffered).</p>
   <nav>
-    <a href="/telemetry/logs/raw">Raw stdout logs</a>
+    <a href="/telemetry/logs/raw">Application logs (plain text)</a>
+    <a href="/telemetry/logs/json">Structured JSON logs</a>
     <a href="/telemetry/logs?format=json">JSON API</a>
     <a href="/metrics">Prometheus /metrics</a>
   </nav>
@@ -119,6 +121,11 @@ class _Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/telemetry/logs/raw":
+            payload = buffer.plain_lines(limit).encode("utf-8")
+            self._respond(200, payload, "text/plain; charset=utf-8")
+            return
+
+        if path == "/telemetry/logs/json":
             payload = buffer.raw_lines(limit).encode("utf-8")
             self._respond(200, payload, "text/plain; charset=utf-8")
             return
@@ -173,7 +180,7 @@ def start(port: int) -> ThreadingHTTPServer | None:
     ).start()
     _started = True
     logger.info(
-        "Runner HTTP listening on :%d (/metrics, /telemetry/logs, /telemetry/logs/raw)",
+        "Runner HTTP listening on :%d (/metrics, /telemetry/logs, /telemetry/logs/raw, /telemetry/logs/json)",
         port,
     )
     return _server
