@@ -34,6 +34,7 @@ import generator.health_server as health_server  # noqa: E402
 import generator.otel_metrics as otel  # noqa: E402
 import generator.otel_tracing as tracing  # noqa: E402
 import generator.pod_metrics_simulator as pod_sim  # noqa: E402
+import generator.runner_http as runner_http  # noqa: E402
 import generator.semantic_conventions as sc  # noqa: E402
 from generator.evaluator import get_evaluator  # noqa: E402
 from generator.kafka_publisher import KafkaPublisher, PublisherConfigError  # noqa: E402
@@ -380,6 +381,7 @@ def main() -> int:
 
     _ensure_tracing()
     health_server.start(HEALTH_PORT)
+    runner_http.start(int(os.getenv("PROMETHEUS_PORT", "0")))
 
     while _running:
         tick = time.monotonic()

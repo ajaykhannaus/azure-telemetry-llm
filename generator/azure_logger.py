@@ -76,6 +76,13 @@ def setup_structured_logging() -> None:
     handler = logging.StreamHandler()
     handler.setFormatter(formatter)
     root.addHandler(handler)
+
+    from generator.telemetry_log_handler import TelemetryLogHandler  # noqa: WPS433
+
+    capture = TelemetryLogHandler()
+    capture.setFormatter(formatter)
+    root.addHandler(capture)
+
     root.setLevel(logging.INFO)
 
     from generator import otel_logging  # noqa: WPS433 — avoid circular import at module load

@@ -75,6 +75,8 @@ echo "════════════════════════�
 echo "  AI Gateway Telemetry — local stack is running"
 echo "════════════════════════════════════════════════════════════"
 echo "  Runner metrics : http://localhost:8000/metrics"
+echo "  Telemetry logs : http://localhost:8000/telemetry/logs"
+echo "  Raw stdout logs: http://localhost:8000/telemetry/logs/raw"
 echo "  Health         : http://localhost:8080/healthz"
 echo "  Prometheus     : http://localhost:9090"
 echo "  Grafana        : http://localhost:3000  (admin / admin)"

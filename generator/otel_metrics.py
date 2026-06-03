@@ -66,7 +66,6 @@ _OTLP_AVAILABLE = _OTLP_GRPC_AVAILABLE or _OTLP_HTTP_AVAILABLE
 
 try:
     from opentelemetry.exporter.prometheus import PrometheusMetricReader as _PrometheusReader
-    from prometheus_client import start_http_server as _start_http_server
 
     _PROMETHEUS_AVAILABLE = True
 except ImportError:
@@ -158,9 +157,8 @@ def setup_otel() -> None:
         if _PROMETHEUS_AVAILABLE:
             try:
                 readers.append(_PrometheusReader())
-                _start_http_server(prometheus_port)
                 logger.info(
-                    "Prometheus metrics exposed on http://localhost:%d/metrics",
+                    "Prometheus reader registered — HTTP served by runner_http on :%d/metrics",
                     prometheus_port,
                 )
             except Exception as exc:

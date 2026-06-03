@@ -235,6 +235,11 @@ curl -sf "https://${GRAFANA_FQDN}/api/health"
 RUNNER_FQDN=$(az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg \
   --query "properties.configuration.ingress.fqdn" -o tsv)
 curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
+
+# Runner log viewers (client demo)
+echo "Formatted: https://${RUNNER_FQDN}/telemetry/logs"
+echo "Raw stdout: https://${RUNNER_FQDN}/telemetry/logs/raw"
+curl -sf "https://${RUNNER_FQDN}/telemetry/logs/raw" | tail -5
 ```
 
 ---
