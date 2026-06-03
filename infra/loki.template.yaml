@@ -10,8 +10,7 @@ properties:
       external: false
       allowInsecure: false
       targetPort: 3100
-      exposedPort: 3100
-      transport: http
+      transport: auto
     registries: []
   template:
     containers:

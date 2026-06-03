@@ -8,8 +8,7 @@ properties:
       external: false
       allowInsecure: false
       targetPort: 3200
-      exposedPort: 3200
-      transport: http
+      transport: auto
       additionalPortMappings:
         - targetPort: 4317
           exposedPort: 4317

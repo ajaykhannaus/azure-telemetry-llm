@@ -9,12 +9,11 @@ properties:
     ingress:
       external: false
       allowInsecure: false
-      targetPort: 4317
-      exposedPort: 4317
-      transport: http2
+      targetPort: 3200
+      transport: auto
       additionalPortMappings:
-        - targetPort: 3200
-          exposedPort: 3200
+        - targetPort: 4317
+          exposedPort: 4317
           external: false
     registries: []
   template:

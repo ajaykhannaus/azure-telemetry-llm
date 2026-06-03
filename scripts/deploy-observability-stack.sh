@@ -170,9 +170,9 @@ wait_for_app() {
 
 write_datasource_env() {
   local prom_url loki_url tempo_url otel_endpoint
-  prom_url="https://$(app_fqdn "$PROM_APP_NAME")"
-  loki_url="https://$(app_fqdn "$LOKI_APP_NAME")"
-  tempo_url="https://$(app_fqdn "$TEMPO_APP_NAME")"
+  prom_url="http://$(internal_host "$PROM_APP_NAME"):9090"
+  loki_url="http://$(internal_host "$LOKI_APP_NAME"):3100"
+  tempo_url="http://$(internal_host "$TEMPO_APP_NAME"):3200"
   otel_endpoint="http://$(internal_host "$OTEL_APP_NAME"):4317"
 
   log "Datasource URLs:"
@@ -219,7 +219,7 @@ render_loki_yaml "$loki_yaml"
 deploy_yaml_app "$LOKI_APP_NAME" "$loki_yaml"
 rm -f "$loki_yaml"
 wait_for_app "$LOKI_APP_NAME" \
-  "curl -sf --max-time 10 \"https://$(app_fqdn "$LOKI_APP_NAME")/ready\" >/dev/null" \
+  "curl -sf --max-time 10 \"http://$(internal_host "$LOKI_APP_NAME"):3100/ready\" >/dev/null" \
   "Loki" || true
 
 # ── 2. Tempo (ACR image + admin) ─────────────────────────────────────────────
@@ -232,7 +232,7 @@ render_acr_admin_yaml "$ROOT/infra/tempo-acr-admin.template.yaml" "$tempo_yaml" 
 deploy_yaml_app "$TEMPO_APP_NAME" "$tempo_yaml"
 rm -f "$tempo_yaml"
 wait_for_app "$TEMPO_APP_NAME" \
-  "curl -sf --max-time 10 \"https://$(app_fqdn "$TEMPO_APP_NAME")/ready\" >/dev/null" \
+  "curl -sf --max-time 10 \"http://$(internal_host "$TEMPO_APP_NAME"):3200/ready\" >/dev/null" \
   "Tempo" || true
 
 # ── 3. Prometheus scraper (sandbox, no AMP) ──────────────────────────────────
