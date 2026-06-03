@@ -50,6 +50,8 @@ properties:
             value: __EVENTHUB_NAME__
           - name: ALLOW_MOCK_MODE
             value: "true"
+          - name: LOG_STDOUT_FORMAT
+            value: "plain"
           - name: OTEL_EXPORTER_OTLP_ENDPOINT
             value: __OTEL_ENDPOINT__
           - name: OTEL_EXPORTER_OTLP_INSECURE

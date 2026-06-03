@@ -33,7 +33,6 @@ import generator.azure_logger as azure_logger  # noqa: E402
 import generator.health_server as health_server  # noqa: E402
 import generator.otel_metrics as otel  # noqa: E402
 import generator.otel_tracing as tracing  # noqa: E402
-import generator.plain_app_logs as plain_app_logs  # noqa: E402
 import generator.pod_metrics_simulator as pod_sim  # noqa: E402
 import generator.runner_http as runner_http  # noqa: E402
 import generator.semantic_conventions as sc  # noqa: E402
@@ -207,7 +206,6 @@ def run_one_batch() -> dict[str, Any]:
                     start_ok, end_ok = _publish_event(publisher, event)
                     otel.record_metrics(event)
                     azure_logger.log_event(event)
-                    plain_app_logs.record_request(event)
 
                     _prompt_text   = event.get("prompt_text")
                     _response_text = event.get("response_text")
@@ -220,20 +218,6 @@ def run_one_batch() -> dict[str, Any]:
                             response_text=_response_text,
                             prompt_pii=ev_scanned.get("prompt_pii"),
                             response_pii=ev_scanned.get("response_pii"),
-                        )
-                        _pp = ev_scanned.get("prompt_pii")
-                        _rp = ev_scanned.get("response_pii")
-                        plain_app_logs.record_prompt_audit(
-                            ev_scanned,
-                            pii_detected=bool(
-                                (_pp.pii_detected if _pp else False)
-                                or (_rp.pii_detected if _rp else False)
-                            ),
-                            entity_counts={
-                                **(_pp.entity_counts if _pp else {}),
-                                **(_rp.entity_counts if _rp else {}),
-                            },
-                            prompt_hash=_pp.original_hash if _pp else "",
                         )
                         get_evaluator().maybe_evaluate(
                             event,
@@ -320,20 +304,10 @@ def run_one_batch() -> dict[str, Any]:
         "timestamp":         datetime.now(timezone.utc).isoformat(),
     }
 
-    log_parts = (
-        f"batch={batch_size} ok={successes} err={errors} "
-        f"sla_breach={sla_breaches} cost=${total_cost:.5f} tokens={total_tokens} "
-        f"dur={batch_duration:.2f}s"
+    logger.info(
+        "batch finished",
+        extra={"event_type": "batch_summary", **summary},
     )
-    if anomaly["degraded_model"]:
-        log_parts += f" degraded={anomaly['degraded_model']}"
-    if anomaly["cascade_active"]:
-        log_parts += " CASCADE_ACTIVE"
-    if exhausted_clients:
-        log_parts += f" budget_exhausted={exhausted_clients}"
-
-    plain_app_logs.record_batch(summary)
-    logger.info(log_parts)
     return summary
 
 
@@ -356,6 +330,7 @@ def _apply_local_dev_defaults() -> None:
     os.environ.setdefault("PROMETHEUS_PORT", "8000")
     os.environ.setdefault("HEALTH_PORT", "8080")
     os.environ.setdefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
+    os.environ.setdefault("LOG_STDOUT_FORMAT", "plain")
 
 
 def main() -> int:
@@ -382,11 +357,6 @@ def main() -> int:
         "eventhub_namespace": os.getenv("EVENTHUB_NAMESPACE", ""),
         "eventhub_name":      os.getenv("EVENTHUB_NAME", "ai-telemetry-events"),
     })
-    plain_app_logs.record_startup({
-        "environment": os.getenv("ENVIRONMENT", "prod"),
-        "batch_interval_s": BATCH_INTERVAL_S,
-    })
-
     logger.info(
         "Runner starting | interval=%.1fs | base_batch=%d | error_prob=%.2f%%",
         BATCH_INTERVAL_S,

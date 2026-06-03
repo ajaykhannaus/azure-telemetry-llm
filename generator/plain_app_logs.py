@@ -1,8 +1,8 @@
-"""Plain-text application logs for client demos.
+"""Plain-text application log formatting.
 
-Production apps typically emit human-readable log lines to stdout (Spring Boot,
-FastAPI/Uvicorn, nginx access logs). Structured JSON is an observability export;
-this module generates the readable lines clients expect on /telemetry/logs/raw.
+Formats real telemetry events as human-readable gateway lines (Spring Boot,
+nginx access logs). Used by :mod:`generator.plain_stdout_formatter` for actual
+container stdout when ``LOG_STDOUT_FORMAT=plain``.
 """
 from __future__ import annotations
 

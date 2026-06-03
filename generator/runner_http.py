@@ -5,13 +5,14 @@ Serves:
   /telemetry/logs       — formatted telemetry view (HTML or JSON)
   /telemetry/logs/raw   — exact container stdout (Log Analytics / az containerapp logs)
   /telemetry/logs/json  — alias of /raw (same stdout capture)
-  /telemetry/logs/demo  — synthetic plain-text gateway lines (client demo only)
+  /telemetry/logs/demo  — plain-text gateway lines (same as /raw when LOG_STDOUT_FORMAT=plain)
 """
 from __future__ import annotations
 
 import html
 import json
 import logging
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -24,10 +25,24 @@ logger = logging.getLogger(__name__)
 _server: ThreadingHTTPServer | None = None
 _started = False
 
-_RAW_HEADER = (
+_RAW_HEADER_JSON = (
     "# Container stdout — same lines as: az containerapp logs show\n"
     "# One JSON object per line (Log Analytics Log_s format)\n"
 )
+_RAW_HEADER_PLAIN = (
+    "# Container stdout — same lines as: az containerapp logs show\n"
+    "# Plain-text gateway application logs\n"
+)
+
+
+def _raw_header() -> str:
+    fmt = os.getenv("LOG_STDOUT_FORMAT", "").strip().lower()
+    if fmt == "plain":
+        return _RAW_HEADER_PLAIN
+    if fmt == "json":
+        return _RAW_HEADER_JSON
+    mock = os.getenv("ALLOW_MOCK_MODE", "").lower() in ("true", "1", "yes")
+    return _RAW_HEADER_PLAIN if mock else _RAW_HEADER_JSON
 
 
 def _prometheus_payload() -> tuple[bytes, str]:
@@ -50,7 +65,7 @@ def _parse_limit(query: dict[str, list[str]], default: int = 200) -> int:
 def _stdout_payload(limit: int, *, include_header: bool) -> bytes:
     body = buffer.raw_lines(limit)
     if include_header and body:
-        return (_RAW_HEADER + body).encode("utf-8")
+        return (_raw_header() + body).encode("utf-8")
     return body.encode("utf-8")
 
 

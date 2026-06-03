@@ -1,8 +1,8 @@
 """In-memory ring buffer of recent log lines for HTTP demo endpoints.
 
-  - plain lines  → /telemetry/logs/demo  (synthetic gateway demo text)
-  - JSON lines   → /telemetry/logs/raw   (exact stdout / Log Analytics)
-  - parsed JSON  → /telemetry/logs        (formatted HTML table)
+  - stdout lines → /telemetry/logs/raw   (exact container stdout / Log Analytics)
+  - parsed docs  → /telemetry/logs        (formatted HTML table)
+  - plain lines  → /telemetry/logs/demo   (legacy buffer; mirrors stdout in plain mode)
 """
 from __future__ import annotations
 
@@ -47,20 +47,31 @@ class TelemetryLogBuffer:
             return ""
         return "\n".join(lines) + "\n"
 
-    def append_raw(self, line: str) -> None:
+    def append_stdout(self, line: str, doc: dict[str, Any] | None = None) -> None:
         line = line.rstrip("\n")
         if not line:
             return
+
         parsed: dict[str, Any]
-        try:
-            doc = json.loads(line)
-            parsed = doc if isinstance(doc, dict) else {"_value": doc}
-        except json.JSONDecodeError:
-            parsed = {"_unparsed": line}
+        if doc is not None:
+            parsed = doc
+        else:
+            try:
+                loaded = json.loads(line)
+                parsed = loaded if isinstance(loaded, dict) else {"_value": loaded}
+            except json.JSONDecodeError:
+                parsed = {"_unparsed": line}
 
         with self._lock:
             self._raw.append(line)
-            self._parsed.append(parsed)
+            if _is_telemetry_record(parsed):
+                self._parsed.append(parsed)
+            if not line.lstrip().startswith("{"):
+                self._plain.append(line)
+
+    def append_raw(self, line: str) -> None:
+        """Backward-compatible alias for tests and direct buffer writes."""
+        self.append_stdout(line)
 
     def raw_lines(self, limit: int) -> str:
         limit = max(1, min(limit, self._max_size))

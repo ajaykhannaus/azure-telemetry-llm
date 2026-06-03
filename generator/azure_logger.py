@@ -1,8 +1,12 @@
-"""Structured JSON logging for Azure Container Apps / Log Analytics.
+"""Structured logging for Azure Container Apps / Log Analytics.
 
-When running on Azure Container Apps, stdout is collected automatically and
-appears in Log Analytics under the table ContainerAppConsoleLogs_CL (field: Log_s).
-Because every line is valid JSON, KQL can parse fields with parse_json(Log_s).
+Stdout format is controlled by ``LOG_STDOUT_FORMAT``:
+
+  plain — human-readable gateway lines (default when ``ALLOW_MOCK_MODE=true``)
+  json  — one JSON object per line for ``parse_json(Log_s)`` in Log Analytics
+
+Structured fields are always exported to Loki via OTLP (JSON body) regardless of
+stdout format.
 
 Public API
 ----------
@@ -32,62 +36,82 @@ _LOG_RECORD_STD_KEYS = frozenset({
 })
 
 
-class JSONFormatter(logging.Formatter):
-    """Format every log record as a single-line JSON object.
+def stdout_format() -> str:
+    """Return ``plain`` or ``json`` for container stdout."""
+    explicit = os.getenv("LOG_STDOUT_FORMAT", "").strip().lower()
+    if explicit in ("plain", "json"):
+        return explicit
+    mock = os.getenv("ALLOW_MOCK_MODE", "").lower() in ("true", "1", "yes")
+    return "plain" if mock else "json"
 
-    Standard fields: timestamp, level, logger, message, module, funcName,
-                     service_name, environment, exception (when present).
-    Extra fields: any key injected via logging.info(..., extra={...}).
-    """
+
+def record_to_log_doc(record: logging.LogRecord) -> dict[str, Any]:
+    """Build the structured log document for JSON export and HTML views."""
+    doc: dict[str, Any] = {
+        "timestamp":    datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
+        "level":        record.levelname,
+        "logger":       record.name,
+        "message":      sanitize_string(record.getMessage()),
+        "module":       record.module,
+        "funcName":     record.funcName,
+        "service_name": _SERVICE,
+        "environment":  _ENV,
+    }
+    if record.exc_info:
+        doc["exception"] = sanitize_string(logging.Formatter().formatException(record.exc_info))
+
+    for key, val in record.__dict__.items():
+        if key not in _LOG_RECORD_STD_KEYS and key not in doc:
+            doc[key] = sanitize_value(val)
+    return doc
+
+
+def record_to_event(record: logging.LogRecord) -> dict[str, Any]:
+    """Extract caller ``extra=`` fields from a log record as an event dict."""
+    return {
+        key: val
+        for key, val in record.__dict__.items()
+        if key not in _LOG_RECORD_STD_KEYS
+    }
+
+
+class JSONFormatter(logging.Formatter):
+    """Format every log record as a single-line JSON object."""
 
     def format(self, record: logging.LogRecord) -> str:
-        doc: dict[str, Any] = {
-            "timestamp":    datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
-            "level":        record.levelname,
-            "logger":       record.name,
-            "message":      sanitize_string(record.getMessage()),
-            "module":       record.module,
-            "funcName":     record.funcName,
-            "service_name": _SERVICE,
-            "environment":  _ENV,
-        }
-        if record.exc_info:
-            doc["exception"] = sanitize_string(self.formatException(record.exc_info))
+        return json.dumps(record_to_log_doc(record), default=str)
 
-        # Carry through caller `extra=` fields only — never LogRecord internals.
-        for key, val in record.__dict__.items():
-            if key not in _LOG_RECORD_STD_KEYS and key not in doc:
-                doc[key] = sanitize_value(val)
 
-        return json.dumps(doc, default=str)
+def _stdout_formatter() -> logging.Formatter:
+    if stdout_format() == "plain":
+        from generator.plain_stdout_formatter import PlainStdoutFormatter  # noqa: WPS433
+
+        return PlainStdoutFormatter()
+    return JSONFormatter()
 
 
 def setup_structured_logging() -> None:
-    """Replace all root logger handlers with a single JSON-to-stdout handler.
-
-    Call this once at the very start of main(), before any other logging call.
-    Safe to call multiple times — subsequent calls replace the handler cleanly.
-    Also wires OTLP log export when OTEL_EXPORTER_OTLP_ENDPOINT is set.
-    """
+    """Configure stdout logging and OTLP export. Idempotent."""
     root = logging.getLogger()
     for h in root.handlers[:]:
         root.removeHandler(h)
-    formatter = JSONFormatter()
+
+    stdout_fmt = _stdout_formatter()
     handler = logging.StreamHandler()
-    handler.setFormatter(formatter)
+    handler.setFormatter(stdout_fmt)
     root.addHandler(handler)
 
     from generator.telemetry_log_handler import TelemetryLogHandler  # noqa: WPS433
 
     capture = TelemetryLogHandler()
-    capture.setFormatter(formatter)
+    capture.setFormatter(stdout_fmt)
     root.addHandler(capture)
 
     root.setLevel(logging.INFO)
 
     from generator import otel_logging  # noqa: WPS433 — avoid circular import at module load
 
-    otel_logging.setup_otel_logging(json_formatter=formatter)
+    otel_logging.setup_otel_logging(json_formatter=JSONFormatter())
 
 
 def log_event(event: dict[str, Any]) -> None:
@@ -103,9 +127,7 @@ def log_event(event: dict[str, Any]) -> None:
     """
     from generator.prompt_logger import _current_trace_id
 
-    logging.getLogger("generator.telemetry_event").info(
-        "telemetry_event",
-        extra={
+    extra: dict[str, Any] = {
             # ── Identity ─────────────────────────────────────────────────
             "event_type":          "telemetry_event",
             "request_id":          event.get("request_id"),
@@ -153,8 +175,13 @@ def log_event(event: dict[str, Any]) -> None:
             "error_category":      event.get("error_category"),
             "is_retried":          event.get("is_retried"),
             "retry_count":         event.get("retry_count"),
-        },
-    )
+    }
+    logging.getLogger("generator.telemetry_event").info("telemetry_event", extra=extra)
+    if stdout_format() == "plain":
+        logging.getLogger("generator.access").info(
+            "access",
+            extra={**extra, "event_type": "access_log"},
+        )
 
 
 def log_startup_config(config: dict[str, Any]) -> None:

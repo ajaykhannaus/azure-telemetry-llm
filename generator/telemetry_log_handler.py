@@ -1,8 +1,9 @@
-"""Logging handler that mirrors stdout JSON lines into the telemetry log buffer."""
+"""Logging handler that mirrors stdout lines into the telemetry log buffer."""
 from __future__ import annotations
 
 import logging
 
+from generator.azure_logger import record_to_log_doc
 from generator.telemetry_log_buffer import buffer
 
 
@@ -11,6 +12,7 @@ class TelemetryLogHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            buffer.append_raw(self.format(record))
+            line = self.format(record)
+            buffer.append_stdout(line, record_to_log_doc(record))
         except Exception:
             self.handleError(record)

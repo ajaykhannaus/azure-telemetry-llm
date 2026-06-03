@@ -46,16 +46,19 @@ def test_runner_http_raw_is_stdout_not_demo():
     buffer._raw.clear()
     buffer._parsed.clear()
 
-    buffer.append_raw(json.dumps({
-        "timestamp": "2026-06-01T12:00:00+00:00",
-        "message": "telemetry_event",
-        "event_type": "telemetry_event",
-        "request_id": "req-raw-1",
-    }))
-    buffer.append_plain(
+    buffer.append_stdout(
         "2026-06-03 12:00:00.000  INFO 28372 --- [http-nio-8080-exec-1] "
-        "c.e.ai.gateway.InferenceService : synthetic demo only",
+        "c.e.ai.gateway.InferenceService : /v1/chat/completions completed "
+        "status=200 latencyMs=100 tenant=healthcare-portal model=gpt-4o "
+        "tokens=50 costUsd=0.002000 requestId=req-raw-1 traceId=127d86aa",
+        {
+            "timestamp": "2026-06-01T12:00:00+00:00",
+            "message": "telemetry_event",
+            "event_type": "telemetry_event",
+            "request_id": "req-raw-1",
+        },
     )
+    buffer.append_plain("2026-06-03 12:00:00.000  INFO legacy demo-only buffer line")
 
     port = _free_port()
     server = runner_http.start(port)
@@ -67,12 +70,12 @@ def test_runner_http_raw_is_stdout_not_demo():
         assert status == 200
         text = body.decode()
         assert "req-raw-1" in text
-        assert "InferenceService" not in text
+        assert "InferenceService" in text
 
         status, body, _ = _get(f"http://127.0.0.1:{port}/telemetry/logs/demo")
         assert status == 200
         assert b"InferenceService" in body
-        assert b"req-raw-1" not in body
+        assert b"legacy demo-only" in body
     finally:
         server.shutdown()
         runner_http._started = False
