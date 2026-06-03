@@ -53,15 +53,23 @@ prometheus_deploy_sandbox() {
   user="$ACR_ADMIN_USER"
   pass="$ACR_ADMIN_PASS"
 
+  bind_prometheus_acr_registry() {
+    az containerapp registry set \
+      --name "$prom_app" \
+      --resource-group "$rg" \
+      --server "$acr_login" \
+      --username "$user" \
+      --password "$pass" \
+      --output none
+  }
+
   if az containerapp show --name "$prom_app" --resource-group "$rg" >/dev/null 2>&1; then
     echo "[prometheus] Updating $prom_app ..."
+    bind_prometheus_acr_registry
     az containerapp update \
       --name "$prom_app" \
       --resource-group "$rg" \
       --image "${acr_login}/prometheus-scraper:latest" \
-      --registry-server "$acr_login" \
-      --registry-username "$user" \
-      --registry-password "$pass" \
       --set-env-vars "SCRAPE_TARGET=${runner_fqdn}" \
       --output none
   else

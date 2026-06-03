@@ -10,10 +10,12 @@ ENV_FILE="${ENV_FILE:-$ROOT/.env.azure}"
 SKIP_PULL=false
 BUILD_IMAGES=false
 SKIP_RUNNER_OTLP=false
+FROM_STEP="loki"
+FORCE_DEPLOY="${FORCE_CONTAINER_DEPLOY:-false}"
 
 usage() {
   cat <<EOF
-Usage: $0 [--build] [--no-git-pull] [--skip-runner-otlp]
+Usage: $0 [--build] [--no-git-pull] [--skip-runner-otlp] [--from STEP]
 
   Deploys the full observability backend in the Container Apps environment:
     Loki → logs store
@@ -22,19 +24,25 @@ Usage: $0 [--build] [--no-git-pull] [--skip-runner-otlp]
     OTel Collector → receives OTLP from runner (logs/traces/metrics)
     Runner OTLP env → collector (unless --skip-runner-otlp)
 
-  Requires .env.azure from bootstrap-azure.sh and a healthy runner FQDN for Prometheus scrape.
+  Skips any component that already exists and passes its health check (no redeploy).
+  Set FORCE_CONTAINER_DEPLOY=true to redeploy everything.
 
-  --build   Force rebuild tempo/collector/prometheus images in ACR
+  --from STEP   Resume from STEP: loki | tempo | prometheus | otel
+                (skips earlier steps entirely — use after a partial run)
+
+  --build       Force rebuild tempo/collector/prometheus images in ACR
 EOF
 }
 
-for arg in "$@"; do
-  case "$arg" in
-    --build) BUILD_IMAGES=true ;;
-    --no-git-pull) SKIP_PULL=true ;;
-    --skip-runner-otlp) SKIP_RUNNER_OTLP=true ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --build) BUILD_IMAGES=true; shift ;;
+    --no-git-pull) SKIP_PULL=true; shift ;;
+    --skip-runner-otlp) SKIP_RUNNER_OTLP=true; shift ;;
+    --from=*) FROM_STEP="${1#*=}"; shift ;;
+    --from) FROM_STEP="${2:?--from requires loki|tempo|prometheus|otel}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "Unknown arg: $arg" >&2; usage >&2; exit 1 ;;
+    *) echo "Unknown arg: $1" >&2; usage >&2; exit 1 ;;
   esac
 done
 
@@ -168,6 +176,44 @@ wait_for_app() {
   return 1
 }
 
+step_enabled() {
+  local step=$1
+  case "$FROM_STEP" in
+    loki)       return 0 ;;
+    tempo)      [[ "$step" != "loki" ]] ;;
+    prometheus) [[ "$step" != "loki" && "$step" != "tempo" ]] ;;
+    otel)       [[ "$step" == "otel" || "$step" == "otlp" || "$step" == "env" ]] ;;
+    *)
+      log "ERROR: unknown --from step '$FROM_STEP' (use loki|tempo|prometheus|otel)"
+      exit 1
+      ;;
+  esac
+}
+
+app_deployed_ok() {
+  local name=$1 prov run
+  prov=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.provisioningState" -o tsv 2>/dev/null || echo "")
+  run=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.runningStatus" -o tsv 2>/dev/null || echo "")
+  [[ "$prov" == "Succeeded" && "$run" == "Running" ]]
+}
+
+skip_if_healthy() {
+  local name=$1 label=$2 step_key=${3:-}
+  if [[ -n "$step_key" && "$FROM_STEP" == "$step_key" ]]; then
+    return 1
+  fi
+  if [[ "$FORCE_DEPLOY" == "true" ]]; then
+    return 1
+  fi
+  if containerapp_exists "$name" && app_deployed_ok "$name"; then
+    log "SKIP $label ($name) — already deployed (Running)"
+    return 0
+  fi
+  return 1
+}
+
 write_datasource_env() {
   local prom_url loki_url tempo_url otel_endpoint
   prom_url="http://$(internal_host "$PROM_APP_NAME"):9090"
@@ -211,92 +257,132 @@ if ! runner_metrics_ok "https://${RUNNER_FQDN}/metrics"; then
   log "WARN: Runner /metrics not confirmed yet — Prometheus will scrape once runner is healthy"
 fi
 
+if [[ "$FROM_STEP" != "loki" ]]; then
+  log "Resume from '$FROM_STEP' — skipping earlier steps"
+fi
+if [[ "$FORCE_DEPLOY" == "true" ]]; then
+  log "FORCE_CONTAINER_DEPLOY=true — redeploying all components"
+fi
+
+PROM_FQDN=""
+
 # ── 1. Loki (public image) ───────────────────────────────────────────────────
 
-log "=== Loki ==="
-loki_yaml="$ROOT/infra/loki.rendered.yaml"
-render_loki_yaml "$loki_yaml"
-deploy_yaml_app "$LOKI_APP_NAME" "$loki_yaml"
-rm -f "$loki_yaml"
-wait_for_app "$LOKI_APP_NAME" \
-  "curl -sf --max-time 10 \"http://$(internal_host "$LOKI_APP_NAME"):3100/ready\" >/dev/null" \
-  "Loki" || true
+if step_enabled loki; then
+  log "=== Loki ==="
+  if skip_if_healthy "$LOKI_APP_NAME" "Loki" "loki"; then
+    :
+  else
+    loki_yaml="$ROOT/infra/loki.rendered.yaml"
+    render_loki_yaml "$loki_yaml"
+    deploy_yaml_app "$LOKI_APP_NAME" "$loki_yaml"
+    rm -f "$loki_yaml"
+    wait_for_app "$LOKI_APP_NAME" \
+      "curl -sf --max-time 10 \"http://$(internal_host "$LOKI_APP_NAME"):3100/ready\" >/dev/null" \
+      "Loki" || true
+  fi
+else
+  log "SKIP Loki — --from $FROM_STEP"
+fi
 
 # ── 2. Tempo (ACR image + admin) ─────────────────────────────────────────────
 
-log "=== Tempo ==="
-build_if_needed "tempo:latest" "$ROOT/Dockerfile.tempo"
-tempo_yaml="$ROOT/infra/tempo.rendered.yaml"
-render_acr_admin_yaml "$ROOT/infra/tempo-acr-admin.template.yaml" "$tempo_yaml" \
-  "${ACR_LOGIN_SERVER}/tempo:latest"
-deploy_yaml_app "$TEMPO_APP_NAME" "$tempo_yaml"
-rm -f "$tempo_yaml"
-wait_for_app "$TEMPO_APP_NAME" \
-  "curl -sf --max-time 10 \"http://$(internal_host "$TEMPO_APP_NAME"):3200/ready\" >/dev/null" \
-  "Tempo" || true
+if step_enabled tempo; then
+  log "=== Tempo ==="
+  if skip_if_healthy "$TEMPO_APP_NAME" "Tempo" "tempo"; then
+    :
+  else
+    build_if_needed "tempo:latest" "$ROOT/Dockerfile.tempo"
+    tempo_yaml="$ROOT/infra/tempo.rendered.yaml"
+    render_acr_admin_yaml "$ROOT/infra/tempo-acr-admin.template.yaml" "$tempo_yaml" \
+      "${ACR_LOGIN_SERVER}/tempo:latest"
+    deploy_yaml_app "$TEMPO_APP_NAME" "$tempo_yaml"
+    rm -f "$tempo_yaml"
+    wait_for_app "$TEMPO_APP_NAME" \
+      "curl -sf --max-time 10 \"http://$(internal_host "$TEMPO_APP_NAME"):3200/ready\" >/dev/null" \
+      "Tempo" || true
+  fi
+else
+  log "SKIP Tempo — --from $FROM_STEP"
+fi
 
 # ── 3. Prometheus scraper (sandbox, no AMP) ──────────────────────────────────
 
-log "=== Prometheus scraper ==="
-build_if_needed "prometheus-scraper:latest" "$ROOT/Dockerfile.prometheus"
-prometheus_deploy_sandbox "$PROM_APP_NAME" "$CAE_NAME" "$AZURE_RESOURCE_GROUP" \
-  "$ACR_NAME" "$ACR_LOGIN_SERVER" "$RUNNER_FQDN"
-
-PROM_FQDN=$(app_fqdn "$PROM_APP_NAME")
-wait_for_app "$PROM_APP_NAME" \
-  "curl -sf --max-time 10 \"https://${PROM_FQDN}/-/ready\" >/dev/null" \
-  "Prometheus" || true
+if step_enabled prometheus; then
+  log "=== Prometheus scraper ==="
+  if skip_if_healthy "$PROM_APP_NAME" "Prometheus" "prometheus"; then
+    PROM_FQDN=$(app_fqdn "$PROM_APP_NAME")
+  else
+    build_if_needed "prometheus-scraper:latest" "$ROOT/Dockerfile.prometheus"
+    prometheus_deploy_sandbox "$PROM_APP_NAME" "$CAE_NAME" "$AZURE_RESOURCE_GROUP" \
+      "$ACR_NAME" "$ACR_LOGIN_SERVER" "$RUNNER_FQDN"
+    PROM_FQDN=$(app_fqdn "$PROM_APP_NAME")
+    wait_for_app "$PROM_APP_NAME" \
+      "curl -sf --max-time 10 \"https://${PROM_FQDN}/-/ready\" >/dev/null" \
+      "Prometheus" || true
+  fi
+else
+  log "SKIP Prometheus — --from $FROM_STEP"
+  PROM_FQDN=$(app_fqdn "$PROM_APP_NAME")
+fi
 
 # ── 4. OTel Collector ────────────────────────────────────────────────────────
 
-log "=== OTel Collector ==="
-build_if_needed "otel-collector:latest" "$ROOT/Dockerfile.collector"
+if step_enabled otel; then
+  log "=== OTel Collector ==="
+  if skip_if_healthy "$OTEL_APP_NAME" "OTel Collector" "otel"; then
+    :
+  else
+    build_if_needed "otel-collector:latest" "$ROOT/Dockerfile.collector"
 
-domain=$(cae_domain)
-TEMPO_EP="$(internal_host "$TEMPO_APP_NAME"):4317"
-LOKI_EP="https://$(internal_host "$LOKI_APP_NAME")/loki/api/v1/push"
-PROM_EP="https://$(internal_host "$PROM_APP_NAME")/api/v1/write"
+    TEMPO_EP="$(internal_host "$TEMPO_APP_NAME"):4317"
+    LOKI_EP="https://$(internal_host "$LOKI_APP_NAME")/loki/api/v1/push"
+    PROM_EP="https://$(internal_host "$PROM_APP_NAME")/api/v1/write"
 
-otel_yaml="$ROOT/infra/otel.rendered.yaml"
-env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
-acr_admin_credentials "$ACR_NAME"
-user="$(awk_escape "$ACR_ADMIN_USER")"
-pass="$(awk_escape "$ACR_ADMIN_PASS")"
-tempo_ep="$(awk_escape "$TEMPO_EP")"
-loki_ep="$(awk_escape "$LOKI_EP")"
-prom_ep="$(awk_escape "$PROM_EP")"
-awk -v loc="$AZURE_LOCATION" \
-    -v env_id="$env_id" \
-    -v acr_server="$ACR_LOGIN_SERVER" \
-    -v acr_user="$user" \
-    -v acr_pass="$pass" \
-    -v image="${ACR_LOGIN_SERVER}/otel-collector:latest" \
-    -v tempo_ep="$TEMPO_EP" \
-    -v loki_ep="$LOKI_EP" \
-    -v prom_ep="$PROM_EP" \
-    '{
-      gsub(/__LOCATION__/, loc)
-      gsub(/__MANAGED_ENV_ID__/, env_id)
-      gsub(/__ACR_LOGIN_SERVER__/, acr_server)
-      gsub(/__ACR_USERNAME__/, acr_user)
-      gsub(/__ACR_ADMIN_PASSWORD__/, acr_pass)
-      gsub(/__IMAGE__/, image)
-      gsub(/__TEMPO_ENDPOINT__/, tempo_ep)
-      gsub(/__LOKI_ENDPOINT__/, loki_ep)
-      gsub(/__PROM_WRITE_ENDPOINT__/, prom_ep)
-      print
-    }' "$ROOT/infra/otel-collector-acr-admin.template.yaml" > "$otel_yaml"
+    otel_yaml="$ROOT/infra/otel.rendered.yaml"
+    env_id=$(az containerapp env show --name "$CAE_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+    acr_admin_credentials "$ACR_NAME"
+    user="$(awk_escape "$ACR_ADMIN_USER")"
+    pass="$(awk_escape "$ACR_ADMIN_PASS")"
+    tempo_ep="$(awk_escape "$TEMPO_EP")"
+    loki_ep="$(awk_escape "$LOKI_EP")"
+    prom_ep="$(awk_escape "$PROM_EP")"
+    awk -v loc="$AZURE_LOCATION" \
+        -v env_id="$env_id" \
+        -v acr_server="$ACR_LOGIN_SERVER" \
+        -v acr_user="$user" \
+        -v acr_pass="$pass" \
+        -v image="${ACR_LOGIN_SERVER}/otel-collector:latest" \
+        -v tempo_ep="$TEMPO_EP" \
+        -v loki_ep="$LOKI_EP" \
+        -v prom_ep="$PROM_EP" \
+        '{
+          gsub(/__LOCATION__/, loc)
+          gsub(/__MANAGED_ENV_ID__/, env_id)
+          gsub(/__ACR_LOGIN_SERVER__/, acr_server)
+          gsub(/__ACR_USERNAME__/, acr_user)
+          gsub(/__ACR_ADMIN_PASSWORD__/, acr_pass)
+          gsub(/__IMAGE__/, image)
+          gsub(/__TEMPO_ENDPOINT__/, tempo_ep)
+          gsub(/__LOKI_ENDPOINT__/, loki_ep)
+          gsub(/__PROM_WRITE_ENDPOINT__/, prom_ep)
+          print
+        }' "$ROOT/infra/otel-collector-acr-admin.template.yaml" > "$otel_yaml"
 
-deploy_yaml_app "$OTEL_APP_NAME" "$otel_yaml"
-rm -f "$otel_yaml"
-wait_for_app "$OTEL_APP_NAME" \
-  "curl -sf --max-time 10 \"https://$(app_fqdn "$OTEL_APP_NAME")/\" >/dev/null 2>&1 || \
-   curl -sf --max-time 10 \"http://$(internal_host "$OTEL_APP_NAME"):13133/\" >/dev/null" \
-  "OTel Collector" || true
+    deploy_yaml_app "$OTEL_APP_NAME" "$otel_yaml"
+    rm -f "$otel_yaml"
+    wait_for_app "$OTEL_APP_NAME" \
+      "curl -sf --max-time 10 \"https://$(app_fqdn "$OTEL_APP_NAME")/\" >/dev/null 2>&1 || \
+       curl -sf --max-time 10 \"http://$(internal_host "$OTEL_APP_NAME"):13133/\" >/dev/null" \
+      "OTel Collector" || true
+  fi
+else
+  log "SKIP OTel Collector — --from $FROM_STEP"
+fi
 
 # ── 5. Wire runner OTLP ──────────────────────────────────────────────────────
 
-if [[ "$SKIP_RUNNER_OTLP" != "true" ]]; then
+if step_enabled otlp && [[ "$SKIP_RUNNER_OTLP" != "true" ]]; then
   log "=== Runner OTLP wiring ==="
   OTEL_ENDPOINT="http://$(internal_host "$OTEL_APP_NAME"):4317"
   log "Setting OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_ENDPOINT on $APP_NAME"
