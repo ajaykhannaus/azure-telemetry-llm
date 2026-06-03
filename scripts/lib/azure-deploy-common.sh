@@ -35,9 +35,9 @@ acr_admin_credentials() {
 # True when /metrics returns Prometheus text with runner instruments (not just HTTP 200).
 runner_metrics_ok() {
   local metrics_url=$1 body
-  body=$(curl -sf --max-time 30 "$metrics_url" 2>/dev/null | head -c 65536 || true)
+  body=$(curl -sf --compressed --max-time 30 "$metrics_url" 2>/dev/null | head -c 65536 || true)
   [[ -n "$body" ]] || return 1
-  echo "$body" | grep -qE 'ai_gateway|kube_pod_info|ai_telemetry_runner|# TYPE'
+  echo "$body" | grep -qE 'ai_gateway|kube_pod_info|ai_telemetry_runner|# TYPE|# HELP'
 }
 
 prometheus_deploy_sandbox() {

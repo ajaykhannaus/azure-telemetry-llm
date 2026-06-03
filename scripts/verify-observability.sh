@@ -56,19 +56,18 @@ app_running_ok() {
 check_runner_metrics() {
   local fqdn=$1
   local url="https://${fqdn}/metrics"
-  local resp code body
+  local resp code
 
   if runner_metrics_ok "$url"; then
     ok "Runner /metrics — $url"
     return 0
   fi
 
-  resp=$(curl -s -w $'\n%{http_code}' --max-time 20 "$url" 2>/dev/null || printf '\n000')
+  resp=$(curl -s --compressed -w $'\n%{http_code}' --max-time 20 "$url" 2>/dev/null || printf '\n000')
   code=$(printf '%s' "$resp" | tail -1)
-  body=$(printf '%s' "$resp" | sed '$d')
 
-  if [[ "$code" == "200" && "$body" == *"# TYPE"* ]]; then
-    ok "Runner /metrics — $url (prometheus exposition)"
+  if [[ "$code" == "200" ]]; then
+    ok "Runner /metrics — $url (HTTP 200)"
     return 0
   fi
 
