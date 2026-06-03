@@ -157,14 +157,16 @@ def format_startup_line(config: dict[str, Any]) -> str:
     )
 
 
-def _append(*lines: str) -> None:
-    for line in lines:
-        buffer.append_plain(line)
+def _append(kind: str, line: str, *, tenant_id: str = "", request_id: str = "") -> None:
+    buffer.append_plain(line)
 
 
 def record_request(event: dict[str, Any]) -> None:
     """Buffer plain-text request + access lines for one LLM event."""
-    _append(format_request_line(event), format_access_line(event))
+    tenant = str(event.get("client_name") or event.get("tenant_id") or "")
+    req_id = str(event.get("request_id") or "")
+    _append("request", format_request_line(event), tenant_id=tenant, request_id=req_id)
+    _append("access", format_access_line(event), tenant_id=tenant, request_id=req_id)
 
 
 def record_prompt_audit(
@@ -174,17 +176,24 @@ def record_prompt_audit(
     entity_counts: dict[str, int] | None = None,
     prompt_hash: str = "",
 ) -> None:
-    _append(format_prompt_audit_line(
-        event,
-        pii_detected=pii_detected,
-        entity_counts=entity_counts,
-        prompt_hash=prompt_hash,
-    ))
+    tenant = str(event.get("client_name") or event.get("tenant_id") or "")
+    req_id = str(event.get("request_id") or "")
+    _append(
+        "audit",
+        format_prompt_audit_line(
+            event,
+            pii_detected=pii_detected,
+            entity_counts=entity_counts,
+            prompt_hash=prompt_hash,
+        ),
+        tenant_id=tenant,
+        request_id=req_id,
+    )
 
 
 def record_batch(summary: dict[str, Any]) -> None:
-    _append(format_batch_line(summary))
+    _append("batch", format_batch_line(summary))
 
 
 def record_startup(config: dict[str, Any]) -> None:
-    _append(format_startup_line(config))
+    _append("startup", format_startup_line(config))

@@ -1,7 +1,7 @@
 """In-memory ring buffer of recent log lines for HTTP demo endpoints.
 
-  - plain lines  → /telemetry/logs/raw   (real-world application log text)
-  - JSON lines   → /telemetry/logs/json  (structured stdout / Log Analytics)
+  - plain lines  → /telemetry/logs/demo  (synthetic gateway demo text)
+  - JSON lines   → /telemetry/logs/raw   (exact stdout / Log Analytics)
   - parsed JSON  → /telemetry/logs        (formatted HTML table)
 """
 from __future__ import annotations

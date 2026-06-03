@@ -3,8 +3,9 @@
 Serves:
   /metrics              — Prometheus scrape endpoint
   /telemetry/logs       — formatted telemetry view (HTML or JSON)
-  /telemetry/logs/raw   — plain-text application logs (real-world style)
-  /telemetry/logs/json  — structured JSON stdout (Log Analytics Log_s style)
+  /telemetry/logs/raw   — exact container stdout (Log Analytics / az containerapp logs)
+  /telemetry/logs/json  — alias of /raw (same stdout capture)
+  /telemetry/logs/demo  — synthetic plain-text gateway lines (client demo only)
 """
 from __future__ import annotations
 
@@ -23,6 +24,11 @@ logger = logging.getLogger(__name__)
 _server: ThreadingHTTPServer | None = None
 _started = False
 
+_RAW_HEADER = (
+    "# Container stdout — same lines as: az containerapp logs show\n"
+    "# One JSON object per line (Log Analytics Log_s format)\n"
+)
+
 
 def _prometheus_payload() -> tuple[bytes, str]:
     try:
@@ -39,6 +45,13 @@ def _parse_limit(query: dict[str, list[str]], default: int = 200) -> int:
         return max(1, min(int(raw), 1000))
     except ValueError:
         return default
+
+
+def _stdout_payload(limit: int, *, include_header: bool) -> bytes:
+    body = buffer.raw_lines(limit)
+    if include_header and body:
+        return (_RAW_HEADER + body).encode("utf-8")
+    return body.encode("utf-8")
 
 
 def _format_html(entries: list[dict[str, Any]], limit: int) -> str:
@@ -83,10 +96,10 @@ def _format_html(entries: list[dict[str, Any]], limit: int) -> str:
 <body>
   <h1>AI Telemetry — structured log view</h1>
   <p>Parsed telemetry events for demos. Auto-refreshes every 5s. Showing up to {limit} records
-     ({stats['json_buffered']}/{stats['capacity']} JSON lines buffered).</p>
+     ({stats['json_buffered']}/{stats['capacity']} stdout lines buffered).</p>
   <nav>
-    <a href="/telemetry/logs/raw">Application logs (plain text)</a>
-    <a href="/telemetry/logs/json">Structured JSON logs</a>
+    <a href="/telemetry/logs/raw">Raw stdout</a>
+    <a href="/telemetry/logs/demo">Demo gateway logs</a>
     <a href="/telemetry/logs?format=json">JSON API</a>
     <a href="/metrics">Prometheus /metrics</a>
   </nav>
@@ -120,13 +133,14 @@ class _Handler(BaseHTTPRequestHandler):
             self._respond(200, body, content_type)
             return
 
-        if path == "/telemetry/logs/raw":
-            payload = buffer.plain_lines(limit).encode("utf-8")
+        if path in ("/telemetry/logs/raw", "/telemetry/logs/json"):
+            include_header = query.get("header", ["1"])[0] != "0"
+            payload = _stdout_payload(limit, include_header=include_header)
             self._respond(200, payload, "text/plain; charset=utf-8")
             return
 
-        if path == "/telemetry/logs/json":
-            payload = buffer.raw_lines(limit).encode("utf-8")
+        if path == "/telemetry/logs/demo":
+            payload = buffer.plain_lines(limit).encode("utf-8")
             self._respond(200, payload, "text/plain; charset=utf-8")
             return
 
@@ -180,7 +194,7 @@ def start(port: int) -> ThreadingHTTPServer | None:
     ).start()
     _started = True
     logger.info(
-        "Runner HTTP listening on :%d (/metrics, /telemetry/logs, /telemetry/logs/raw, /telemetry/logs/json)",
+        "Runner HTTP listening on :%d (/metrics, /telemetry/logs/raw, /telemetry/logs/demo)",
         port,
     )
     return _server

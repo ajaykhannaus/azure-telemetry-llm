@@ -138,6 +138,39 @@ Copy output → Azure Portal → **Azure Data Explorer** → cluster `adxtelemet
 
 ---
 
+## Part E2 — Log database (SQLite + optional ADX)
+
+The runner saves plain application logs and telemetry events automatically.
+
+### Command 12b — init / verify log database
+
+```bash
+chmod +x scripts/setup-log-database.sh
+./scripts/setup-log-database.sh
+```
+
+**Local SQLite** (default): file at `LOG_DB_PATH` (default `/tmp/telemetry_logs.db`).
+
+**Query URLs** (after runner is running):
+
+```bash
+RUNNER_FQDN=$(az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+curl -sf "https://${RUNNER_FQDN}/telemetry/logs/db/stats"
+curl -sf "https://${RUNNER_FQDN}/telemetry/logs/db?format=text" | tail -10
+curl -sf "https://${RUNNER_FQDN}/telemetry/logs/db/events" | head -c 500
+```
+
+**Long-term Azure warehouse** (optional):
+
+```bash
+./scripts/setup-log-database.sh --enable-adx
+# then run infra/adx-schema.kql in ADX Portal
+# plain logs land in ObservabilityLogs via Event Hub app.log events
+```
+
+---
+
 ## Part F — Deploy app (still in Cloud Shell, no Mac)
 
 ### Command 13
@@ -236,10 +269,10 @@ RUNNER_FQDN=$(az containerapp show -n ai-telemetry-runner-dev -g az03-al-titan-s
   --query "properties.configuration.ingress.fqdn" -o tsv)
 curl -sf "https://${RUNNER_FQDN}/metrics" | grep -m3 ai_gateway
 
-# Runner log viewers (client demo)
-echo "App logs:  https://${RUNNER_FQDN}/telemetry/logs/raw"
-echo "JSON logs: https://${RUNNER_FQDN}/telemetry/logs/json"
-curl -sf "https://${RUNNER_FQDN}/telemetry/logs/raw" | tail -5
+# Runner log viewers
+echo "Raw stdout: https://${RUNNER_FQDN}/telemetry/logs/raw"
+echo "Demo logs:  https://${RUNNER_FQDN}/telemetry/logs/demo"
+curl -sf "https://${RUNNER_FQDN}/telemetry/logs/raw?header=0&limit=5"
 ```
 
 ---
