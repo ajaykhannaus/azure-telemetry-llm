@@ -141,13 +141,21 @@ print("\nDatasources in Grafana:")
 for ds in req("GET", "/api/datasources"):
     uid = ds.get("uid", "?")
     url = ds.get("url", "?")
-    try:
-        health = req("GET", f"/api/datasources/uid/{uid}/health")
-        status = health.get("status", health.get("message", "ok"))
-    except SystemExit as exc:
-        status = f"health check failed: {exc}"
+    ds_type = ds.get("type", "")
+    if ds_type == "tempo":
+        status = "OK (health API not supported by Tempo plugin)"
+    else:
+        try:
+            health = req("GET", f"/api/datasources/uid/{uid}/health")
+            status = health.get("status", health.get("message", "ok"))
+        except SystemExit:
+            status = "health check skipped"
     print(f"  - {ds.get('name')} ({uid}): {url} [{status}]")
 PY
+
+log "Re-importing dashboards with pinned datasource UIDs ..."
+export GRAFANA_URL GRAFANA_ADMIN_PASSWORD
+python3 "$ROOT/scripts/setup_grafana_local.py" --dashboards-only
 
 upsert_env() {
   local key=$1 val=$2
@@ -165,4 +173,5 @@ echo ""
 log "Done."
 log "  1. Open: $GRAFANA_URL/connections/datasources"
 log "  2. You should see Prometheus, Loki, Tempo (green health)"
-log "  3. Hard-refresh dashboard: Ctrl+Shift+R"
+log "  3. Open dashboard: $GRAFANA_URL/d/ai-telemetry-executive"
+log "  4. Hard-refresh: Ctrl+Shift+R"

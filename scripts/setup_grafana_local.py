@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Configure local Grafana: datasources + import all dashboards into AI Telemetry folder."""
+"""Configure local or Azure Grafana: datasources + import all dashboards into AI Telemetry folder."""
 from __future__ import annotations
 
+import argparse
 import base64
 import json
+import os
+import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -11,10 +14,12 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 DASHBOARDS_DIR = ROOT / "dashboards"
-GRAFANA = "http://localhost:3000"
+GRAFANA = os.getenv("GRAFANA_URL", "http://localhost:3000").rstrip("/")
 FOLDER_UID = "ai-telemetry-folder"
 FOLDER_TITLE = "AI Telemetry"
-AUTH = base64.b64encode(b"admin:admin").decode()
+AUTH = base64.b64encode(
+    f"{os.getenv('GRAFANA_ADMIN_USER', 'admin')}:{os.getenv('GRAFANA_ADMIN_PASSWORD', 'admin')}".encode()
+).decode()
 
 
 def _req(method: str, path: str, body: dict | None = None) -> dict | list:
@@ -386,47 +391,72 @@ def _set_light_theme() -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Configure Grafana datasources and dashboards")
+    parser.add_argument(
+        "--dashboards-only",
+        action="store_true",
+        help="Skip datasource setup; re-import dashboards with pinned UIDs (Azure after fix-grafana-datasources.sh)",
+    )
+    args = parser.parse_args()
+
     _set_light_theme()
 
-    for name in ("azure-managed-prometheus", "Azure Monitor"):
-        _delete_datasource(name)
+    if args.dashboards_only:
+        prom_uid = _find_datasource("Prometheus")
+        loki_uid = _find_datasource("Loki")
+        tempo_uid = _find_datasource("Tempo")
+        if not prom_uid or not loki_uid or not tempo_uid:
+            print("ERROR: Prometheus, Loki, and Tempo datasources must exist before --dashboards-only", file=sys.stderr)
+            sys.exit(1)
+        prom_uid = prom_uid["uid"]
+        loki_uid = loki_uid["uid"]
+        tempo_uid = tempo_uid["uid"]
+        print(f"  using datasources: prom={prom_uid} loki={loki_uid} tempo={tempo_uid}")
+    else:
+        for name in ("azure-managed-prometheus", "Azure Monitor"):
+            _delete_datasource(name)
 
-    prom_uid = _ensure_datasource({
-        "name": "Prometheus",
-        "type": "prometheus",
-        "access": "proxy",
-        "url": "http://localhost:9090",
-        "uid": "prometheus-ds",
-        "isDefault": True,
-        "jsonData": {"timeInterval": "10s"},
-    })
-    loki_uid = _ensure_datasource({
-        "name": "Loki",
-        "type": "loki",
-        "access": "proxy",
-        "url": "http://localhost:3100",
-        "uid": "loki-ds",
-        "jsonData": {
-            "derivedFields": [{
-                "datasourceUid": "tempo-ds",
-                "matcherRegex": '"trace_id":"([a-f0-9]{32})"',
-                "name": "trace_id",
-                "url": "$${__value.raw}",
-            }],
-        },
-    })
-    tempo_uid = _ensure_datasource({
-        "name": "Tempo",
-        "type": "tempo",
-        "access": "proxy",
-        "url": "http://localhost:3200",
-        "uid": "tempo-ds",
-        "jsonData": {
-            "tracesToLogsV2": {"datasourceUid": loki_uid},
-            "tracesToMetrics": {"datasourceUid": prom_uid},
-            "serviceMap": {"datasourceUid": prom_uid},
-        },
-    })
+        prom_uid = _ensure_datasource({
+            "name": "Prometheus",
+            "type": "prometheus",
+            "access": "proxy",
+            "url": os.getenv("PROMETHEUS_URL", "http://localhost:9090"),
+            "uid": "prometheus-ds",
+            "isDefault": True,
+            "jsonData": {
+                "timeInterval": "10s",
+                "tlsSkipVerify": True,
+            },
+        })
+        loki_uid = _ensure_datasource({
+            "name": "Loki",
+            "type": "loki",
+            "access": "proxy",
+            "url": os.getenv("LOKI_URL", "http://localhost:3100"),
+            "uid": "loki-ds",
+            "jsonData": {
+                "tlsSkipVerify": True,
+                "derivedFields": [{
+                    "datasourceUid": "tempo-ds",
+                    "matcherRegex": '"trace_id":"([a-f0-9]{32})"',
+                    "name": "trace_id",
+                    "url": "$${__value.raw}",
+                }],
+            },
+        })
+        tempo_uid = _ensure_datasource({
+            "name": "Tempo",
+            "type": "tempo",
+            "access": "proxy",
+            "url": os.getenv("TEMPO_URL", "http://localhost:3200"),
+            "uid": "tempo-ds",
+            "jsonData": {
+                "tlsSkipVerify": True,
+                "tracesToLogsV2": {"datasourceUid": loki_uid},
+                "tracesToMetrics": {"datasourceUid": prom_uid},
+                "serviceMap": {"datasourceUid": prom_uid},
+            },
+        })
 
     folder_uid = _ensure_folder()
 
