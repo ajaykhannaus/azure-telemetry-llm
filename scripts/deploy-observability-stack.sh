@@ -191,12 +191,30 @@ step_enabled() {
 }
 
 app_deployed_ok() {
-  local name=$1 prov run
+  local name=$1 prov
   prov=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
     --query "properties.provisioningState" -o tsv 2>/dev/null || echo "")
-  run=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
-    --query "properties.runningStatus" -o tsv 2>/dev/null || echo "")
-  [[ "$prov" == "Succeeded" && "$run" == "Running" ]]
+  [[ "$prov" == "Succeeded" ]]
+}
+
+wait_for_app_running() {
+  local name=$1 label=$2
+  local i prov run
+  log "Waiting for $label ($name) provisioning ..."
+  for i in $(seq 1 30); do
+    prov=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.provisioningState" -o tsv 2>/dev/null || echo "")
+    run=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.runningStatus" -o tsv 2>/dev/null || echo "")
+    if [[ "$prov" == "Succeeded" && "$run" == "Running" ]]; then
+      log "$label ready (Running)"
+      return 0
+    fi
+    (( i % 4 == 0 )) && log "  still waiting ($i/30) — prov=$prov run=$run"
+    sleep 10
+  done
+  log "WARN: $label not confirmed Running"
+  return 1
 }
 
 skip_if_healthy() {
@@ -208,7 +226,7 @@ skip_if_healthy() {
     return 1
   fi
   if containerapp_exists "$name" && app_deployed_ok "$name"; then
-    log "SKIP $label ($name) — already deployed (Running)"
+    log "SKIP $label ($name) — already deployed (Succeeded)"
     return 0
   fi
   return 1
@@ -277,9 +295,7 @@ if step_enabled loki; then
     render_loki_yaml "$loki_yaml"
     deploy_yaml_app "$LOKI_APP_NAME" "$loki_yaml"
     rm -f "$loki_yaml"
-    wait_for_app "$LOKI_APP_NAME" \
-      "curl -sf --max-time 10 \"http://$(internal_host "$LOKI_APP_NAME"):3100/ready\" >/dev/null" \
-      "Loki" || true
+    wait_for_app_running "$LOKI_APP_NAME" "Loki" || true
   fi
 else
   log "SKIP Loki — --from $FROM_STEP"
@@ -298,9 +314,7 @@ if step_enabled tempo; then
       "${ACR_LOGIN_SERVER}/tempo:latest"
     deploy_yaml_app "$TEMPO_APP_NAME" "$tempo_yaml"
     rm -f "$tempo_yaml"
-    wait_for_app "$TEMPO_APP_NAME" \
-      "curl -sf --max-time 10 \"http://$(internal_host "$TEMPO_APP_NAME"):3200/ready\" >/dev/null" \
-      "Tempo" || true
+    wait_for_app_running "$TEMPO_APP_NAME" "Tempo" || true
   fi
 else
   log "SKIP Tempo — --from $FROM_STEP"
