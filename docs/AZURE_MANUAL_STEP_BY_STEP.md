@@ -34,6 +34,21 @@ That creates `.env.azure` with Event Hub secrets. Manual steps below assume boot
 
 ---
 
+## One-command fix (recommended)
+
+If console logs show `ModuleNotFoundError: No module named 'observability'` or a stale cached image:
+
+```bash
+cd ~/observability
+git pull
+chmod +x scripts/fix-runner-now.sh
+./scripts/fix-runner-now.sh
+```
+
+This script: git pull → cache-bust ACR build → deploy by **image digest** → poll `/metrics`.
+
+---
+
 ## Step 1 — Confirm latest code
 
 ```bash
