@@ -155,7 +155,10 @@ PY
 
 log "Re-importing dashboards with pinned datasource UIDs ..."
 export GRAFANA_URL GRAFANA_ADMIN_PASSWORD
-python3 "$ROOT/scripts/setup_grafana_local.py" --dashboards-only
+python3 "$ROOT/scripts/setup_grafana_local.py" --dashboards-only || {
+  log "WARN: dashboard API import failed — rebuild Grafana image:"
+  log "  ./scripts/rebuild-grafana-azure.sh"
+}
 
 upsert_env() {
   local key=$1 val=$2

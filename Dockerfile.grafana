@@ -1,31 +1,21 @@
 # Grafana image with AI Telemetry dashboards + datasources pre-provisioned.
-# On first boot, Grafana picks up all 7 dashboards automatically from
-# /var/lib/grafana/dashboards and wires the Prometheus / Loki / Tempo
-# datasources from /etc/grafana/provisioning/datasources.
+# Dashboard JSON is baked at build time with prometheus-ds/loki-ds/tempo-ds UIDs
+# so file provisioning does not ship broken ${DS_PROMETHEUS} placeholders.
 FROM grafana/grafana:11.3.0
 
-# Provisioning configs
 COPY dashboards/provisioning/datasources.yaml \
      /etc/grafana/provisioning/datasources/datasources.yaml
 
 COPY dashboards/provisioning/dashboards.yaml \
      /etc/grafana/provisioning/dashboards/dashboards.yaml
 
-# All 7 dashboard JSON files
-COPY dashboards/01-executive-overview.json  \
-     dashboards/02-traffic-analytics.json   \
-     dashboards/03-latency-performance.json \
-     dashboards/04-token-cost.json          \
-     dashboards/05-model-quality.json       \
-     dashboards/06-safety-pii.json          \
-     dashboards/07-infra-runner.json        \
-     /var/lib/grafana/dashboards/
+COPY dashboards/*.json /src/dashboards/
+COPY scripts/bake_grafana_dashboards.py scripts/setup_grafana_local.py /src/scripts/
 
-# Drop the legacy single dashboard if it was shipped in the base image.
-RUN rm -f /var/lib/grafana/dashboards/grafana_dashboard.json 2>/dev/null || true
+RUN python3 /src/scripts/bake_grafana_dashboards.py /var/lib/grafana/dashboards
 
 ENV GF_PATHS_PROVISIONING=/etc/grafana/provisioning \
-    GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/01-executive-overview.json \
+    GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_UID=ai-telemetry-executive \
     GF_USERS_DEFAULT_THEME=light \
     PROMETHEUS_URL=http://prometheus:9090 \
     LOKI_URL=http://loki:3100 \

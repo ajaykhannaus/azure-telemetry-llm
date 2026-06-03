@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Rebuild Grafana image (baked dashboards) and redeploy on Azure Container Apps.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE="${ENV_FILE:-$ROOT/.env.azure}"
+
+log() { echo "[rebuild-grafana] $*"; }
+
+[[ -f "$ENV_FILE" ]] || { log "ERROR: Missing $ENV_FILE"; exit 1; }
+
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+
+: "${AZURE_RESOURCE_GROUP:?Set AZURE_RESOURCE_GROUP in $ENV_FILE}"
+: "${AZURE_SUBSCRIPTION_ID:?Set AZURE_SUBSCRIPTION_ID in $ENV_FILE}"
+
+ACR_NAME="${ACR_NAME:-acrtelemetrydevaj}"
+
+az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+
+log "Building $ACR_NAME/grafana:latest (baked dashboard UIDs) ..."
+az acr build --registry "$ACR_NAME" --platform linux/amd64 \
+  --image "grafana:latest" -f "$ROOT/Dockerfile.grafana" "$ROOT"
+
+log "Redeploying Grafana Container App ..."
+export FORCE_CONTAINER_DEPLOY=true
+export BOOTSTRAP_CONFIG="${BOOTSTRAP_CONFIG:-$ROOT/azure/bootstrap-azure.sandbox.env}"
+export WRITE_ENV_FILE="$ENV_FILE"
+"$ROOT/scripts/bootstrap-azure.sh" --grafana-only --no-build
+
+log "Configuring datasources ..."
+"$ROOT/scripts/fix-grafana-datasources.sh"
+
+log "Grafana rebuild complete."
