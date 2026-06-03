@@ -8,6 +8,7 @@ properties:
     activeRevisionsMode: Single
     ingress:
       external: false
+      allowInsecure: false
       targetPort: 3100
       exposedPort: 3100
       transport: http

@@ -6,6 +6,7 @@ properties:
     activeRevisionsMode: Single
     ingress:
       external: false
+      allowInsecure: false
       targetPort: 3200
       exposedPort: 3200
       transport: http

@@ -207,8 +207,8 @@ if [[ -z "$RUNNER_FQDN" ]]; then
   exit 1
 fi
 
-if ! curl -sf --max-time 15 "https://${RUNNER_FQDN}/metrics" 2>/dev/null | grep -q ai_gateway; then
-  log "WARN: Runner not serving /metrics yet — Prometheus will scrape once runner is healthy"
+if ! runner_metrics_ok "https://${RUNNER_FQDN}/metrics"; then
+  log "WARN: Runner /metrics not confirmed yet — Prometheus will scrape once runner is healthy"
 fi
 
 # ── 1. Loki (public image) ───────────────────────────────────────────────────
