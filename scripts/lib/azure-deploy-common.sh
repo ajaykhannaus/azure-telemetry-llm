@@ -44,33 +44,79 @@ runner_metrics_ok() {
 cae_internal_https_url() {
   local app=$1 cae_name=$2 rg=$3
   local domain
+  domain=$(cae_default_domain "$cae_name" "$rg") || return 1
+  echo "https://${app}.internal.${domain}"
+}
+
+cae_default_domain() {
+  local cae_name=$1 rg=$2 domain
   domain=$(az containerapp env show --name "$cae_name" --resource-group "$rg" \
     --query properties.defaultDomain -o tsv 2>/dev/null || true)
   [[ -n "$domain" ]] || return 1
+  echo "$domain"
+}
+
+domain_from_internal_fqdn() {
+  local fqdn=$1
+  if [[ "$fqdn" =~ \.internal\.([a-zA-Z0-9.-]+) ]]; then
+    echo "${BASH_REMATCH[1]}"
+  fi
+}
+
+resolve_cae_domain() {
+  local cae_name=$1 rg=$2 ref_app=$3
+  local domain fqdn url
+
+  domain=$(cae_default_domain "$cae_name" "$rg" 2>/dev/null || true)
+  [[ -n "$domain" ]] && { echo "$domain"; return 0; }
+
+  fqdn=$(az containerapp show --name "$ref_app" --resource-group "$rg" \
+    --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
+  domain=$(domain_from_internal_fqdn "$fqdn")
+  [[ -n "$domain" ]] && { echo "$domain"; return 0; }
+
+  for url in "${PROMETHEUS_URL:-}" "${LOKI_URL:-}" "${TEMPO_URL:-}"; do
+    domain=$(domain_from_internal_fqdn "$url")
+    [[ -n "$domain" ]] && { echo "$domain"; return 0; }
+    if [[ "$url" =~ \.internal\.([a-zA-Z0-9.-]+) ]]; then
+      echo "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+build_grafana_ds_url() {
+  local env_url=$1 app=$2 domain=$3 port=$4 url
+
+  if [[ -n "$env_url" && "$env_url" == *"://"* ]]; then
+    url="$env_url"
+    url="${url/http:/https:}"
+    url="${url//:${port}/}"
+    if [[ "$url" =~ ^(https://[^/?#]+) ]]; then
+      url="${BASH_REMATCH[1]}"
+    fi
+    if [[ "$url" =~ ^https://[a-zA-Z0-9.-]+\.internal\. ]]; then
+      echo "$url"
+      return 0
+    fi
+  fi
+
   echo "https://${app}.internal.${domain}"
 }
 
 grafana_datasource_urls() {
   local cae_name=$1 rg=$2 prom_app=$3 loki_app=$4 tempo_app=$5
-  local prom="${PROMETHEUS_URL:-}" loki="${LOKI_URL:-}" tempo="${TEMPO_URL:-}"
+  local domain prom loki tempo
 
-  if [[ -z "$prom" ]]; then
-    prom=$(cae_internal_https_url "$prom_app" "$cae_name" "$rg" || true)
-  fi
-  if [[ -z "$loki" ]]; then
-    loki=$(cae_internal_https_url "$loki_app" "$cae_name" "$rg" || true)
-  fi
-  if [[ -z "$tempo" ]]; then
-    tempo=$(cae_internal_https_url "$tempo_app" "$cae_name" "$rg" || true)
-  fi
+  domain=$(resolve_cae_domain "$cae_name" "$rg" "$prom_app") || {
+    echo "grafana_datasource_urls: cannot resolve CAE domain" >&2
+    return 1
+  }
 
-  # Legacy deploys used http://*.internal.*:port — normalize to ingress HTTPS.
-  prom="${prom/http:\/\//https:\/\/}"
-  prom="${prom/:9090/}"
-  loki="${loki/http:\/\//https:\/\/}"
-  loki="${loki/:3100/}"
-  tempo="${tempo/http:\/\//https:\/\/}"
-  tempo="${tempo/:3200/}"
+  prom=$(build_grafana_ds_url "${PROMETHEUS_URL:-}" "$prom_app" "$domain" 9090)
+  loki=$(build_grafana_ds_url "${LOKI_URL:-}" "$loki_app" "$domain" 3100)
+  tempo=$(build_grafana_ds_url "${TEMPO_URL:-}" "$tempo_app" "$domain" 3200)
 
   printf '%s\n' "$prom" "$loki" "$tempo"
 }

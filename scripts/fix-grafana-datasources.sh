@@ -33,15 +33,29 @@ GRAFANA_FQDN=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group 
 [[ -n "$GRAFANA_FQDN" ]] || { log "ERROR: Grafana $GRAFANA_APP_NAME has no FQDN"; exit 1; }
 
 GRAFANA_URL="https://${GRAFANA_FQDN}"
-read -r PROM_URL LOKI_URL TEMPO_URL < <(grafana_datasource_urls \
+mapfile -t _DS_URLS < <(grafana_datasource_urls \
   "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$PROM_APP_NAME" "$LOKI_APP_NAME" "$TEMPO_APP_NAME")
+DS_PROM="${_DS_URLS[0]:-}"
+DS_LOKI="${_DS_URLS[1]:-}"
+DS_TEMPO="${_DS_URLS[2]:-}"
+
+validate_ds_url() {
+  local label=$1 url=$2
+  [[ -n "$url" && "$url" == https://* ]] || {
+    log "ERROR: invalid $label URL: '${url:-empty}'"
+    exit 1
+  }
+}
+validate_ds_url Prometheus "$DS_PROM"
+validate_ds_url Loki "$DS_LOKI"
+validate_ds_url Tempo "$DS_TEMPO"
 
 log "Patching datasources on $GRAFANA_URL"
-log "  Prometheus → $PROM_URL"
-log "  Loki       → $LOKI_URL"
-log "  Tempo      → $TEMPO_URL"
+log "  Prometheus → $DS_PROM"
+log "  Loki       → $DS_LOKI"
+log "  Tempo      → $DS_TEMPO"
 
-python3 - "$GRAFANA_URL" "$GRAFANA_ADMIN_PASSWORD" "$PROM_URL" "$LOKI_URL" "$TEMPO_URL" <<'PY'
+python3 - "$GRAFANA_URL" "$GRAFANA_ADMIN_PASSWORD" "$DS_PROM" "$DS_LOKI" "$DS_TEMPO" <<'PY'
 import base64
 import json
 import sys
@@ -113,8 +127,8 @@ upsert_env() {
     echo "${key}=${val}" >> "$ENV_FILE"
   fi
 }
-upsert_env PROMETHEUS_URL "$PROM_URL"
-upsert_env LOKI_URL "$LOKI_URL"
-upsert_env TEMPO_URL "$TEMPO_URL"
+upsert_env PROMETHEUS_URL "$DS_PROM"
+upsert_env LOKI_URL "$DS_LOKI"
+upsert_env TEMPO_URL "$DS_TEMPO"
 
 log "Done — refresh Grafana in your browser (Ctrl+Shift+R)"
