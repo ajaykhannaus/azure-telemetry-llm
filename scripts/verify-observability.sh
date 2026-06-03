@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/azure-deploy-common.sh
+source "$ROOT/scripts/lib/azure-deploy-common.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env.azure}"
 
 log() { echo "[verify] $*"; }
@@ -51,6 +53,36 @@ app_running_ok() {
   [[ "$prov" == "Succeeded" && "$run" == "Running" ]]
 }
 
+check_runner_metrics() {
+  local fqdn=$1
+  local url="https://${fqdn}/metrics"
+  local resp code body
+
+  if runner_metrics_ok "$url"; then
+    ok "Runner /metrics — $url"
+    return 0
+  fi
+
+  resp=$(curl -s -w $'\n%{http_code}' --max-time 20 "$url" 2>/dev/null || printf '\n000')
+  code=$(printf '%s' "$resp" | tail -1)
+  body=$(printf '%s' "$resp" | sed '$d')
+
+  if [[ "$code" == "200" && "$body" == *"# TYPE"* ]]; then
+    ok "Runner /metrics — $url (prometheus exposition)"
+    return 0
+  fi
+
+  if app_running_ok "$APP_NAME"; then
+    warn "Container App $APP_NAME is Running but /metrics returned HTTP ${code:-unknown}"
+    warn "  Fix: ./scripts/fix-runner.sh"
+  else
+    warn "Container App $APP_NAME is not Running — redeploy runner"
+    warn "  Fix: ./scripts/fix-runner-now.sh"
+  fi
+  fail "Runner /metrics — $url (HTTP ${code:-unknown})"
+  return 1
+}
+
 check_url() {
   local label=$1 url=$2 pattern=${3:-}
   if [[ -n "$pattern" ]]; then
@@ -84,7 +116,7 @@ echo ""
 log "=== Telemetry runner ==="
 RUNNER_FQDN=$(app_fqdn "$APP_NAME")
 if [[ -n "$RUNNER_FQDN" ]]; then
-  check_url "Runner /metrics" "https://${RUNNER_FQDN}/metrics" "ai_gateway"
+  check_runner_metrics "$RUNNER_FQDN"
 else
   fail "Runner $APP_NAME has no FQDN"
 fi
