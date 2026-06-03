@@ -1,25 +1,13 @@
-# Grafana image with AI Telemetry dashboards + datasources pre-provisioned.
-# Dashboard JSON is baked in a Python stage (grafana base has no python3).
-FROM python:3.12-alpine AS dashboard-baker
-
-WORKDIR /src
-COPY dashboards/*.json /src/dashboards/
-COPY scripts/bake_grafana_dashboards.py scripts/setup_grafana_local.py /src/scripts/
-
-RUN python3 /src/scripts/bake_grafana_dashboards.py /out
-
+# Grafana image — datasource provisioning only.
+# Dashboards are imported via API by scripts/fix-grafana-datasources.sh
+# (file provisioning was overwriting API fixes every 30s and shipped invalid
+# fieldConfig.color.mode values that crash Grafana 11).
 FROM grafana/grafana:11.3.0
 
 COPY dashboards/provisioning/datasources.yaml \
      /etc/grafana/provisioning/datasources/datasources.yaml
 
-COPY dashboards/provisioning/dashboards.yaml \
-     /etc/grafana/provisioning/dashboards/dashboards.yaml
-
-COPY --from=dashboard-baker /out/ /var/lib/grafana/dashboards/
-
 ENV GF_PATHS_PROVISIONING=/etc/grafana/provisioning \
-    GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_UID=ai-telemetry-executive \
     GF_USERS_DEFAULT_THEME=light \
     PROMETHEUS_URL=http://prometheus:9090 \
     LOKI_URL=http://loki:3100 \

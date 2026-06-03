@@ -189,6 +189,19 @@ def _patch_logs_panels(obj: Any) -> None:
             _patch_logs_panels(item)
 
 
+def _fix_grafana11_color_modes(obj: Any) -> None:
+    """Grafana 11 crashes when fieldConfig.color.mode is 'background' (use 'thresholds')."""
+    if isinstance(obj, dict):
+        color = obj.get("color")
+        if isinstance(color, dict) and color.get("mode") == "background":
+            color["mode"] = "thresholds"
+        for v in obj.values():
+            _fix_grafana11_color_modes(v)
+    elif isinstance(obj, list):
+        for item in obj:
+            _fix_grafana11_color_modes(item)
+
+
 def _patch_prom_stat_panels(obj: Any) -> None:
     """Prometheus stat/gauge/bar panels need range queries for rate/recording-rule metrics."""
     if isinstance(obj, dict):
@@ -276,6 +289,7 @@ def _patch_modern_dashboard(
     _patch_logs_panels(dash.get("panels", []))
     _patch_loki_metric_panels(dash.get("panels", []))
     _patch_prom_stat_panels(dash.get("panels", []))
+    _fix_grafana11_color_modes(dash)
     _fix_panel_refids(dash.get("panels", []))
     _patch_datasource_refs(dash, prom_uid, loki_uid, tempo_uid)
 
@@ -359,6 +373,7 @@ def _patch_legacy_dashboard(dash: dict[str, Any], prom_uid: str, loki_uid: str, 
     _patch_queries(dash.get("panels", []))
     _patch_loki_metric_panels(dash.get("panels", []))
     _patch_prom_stat_panels(dash.get("panels", []))
+    _fix_grafana11_color_modes(dash)
     _fix_panel_refids(dash.get("panels", []))
     _patch_datasource_refs(dash, prom_uid, loki_uid, tempo_uid)
 
