@@ -20,6 +20,7 @@ Pick the doc that matches your level.
 | [../COMPANY_VM_SETUP.md](../COMPANY_VM_SETUP.md) | Company VM / self-hosted GitHub runner |
 | [AZURE_CLOUDSHELL_SETUP.md](./AZURE_CLOUDSHELL_SETUP.md) | Azure Cloud Shell provisioning (Bash) — **first-time setup** |
 | [AZURE_CLOUDSHELL_ITERATIVE.md](./AZURE_CLOUDSHELL_ITERATIVE.md) | Azure Cloud Shell — **repeat commands** (verify, redeploy, fix) |
+| [AZURE_MANUAL_STEP_BY_STEP.md](./AZURE_MANUAL_STEP_BY_STEP.md) | **Manual one-command-at-a-time** runner deploy (no scripts) |
 
 ## Recommended reading order
 

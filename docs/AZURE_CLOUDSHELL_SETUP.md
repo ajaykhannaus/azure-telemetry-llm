@@ -1,6 +1,7 @@
 # Azure Cloud Shell Setup (Beginner — All on Azure Bash, No Mac)
 
-> **Re-run / fix / verify commands:** see [AZURE_CLOUDSHELL_ITERATIVE.md](./AZURE_CLOUDSHELL_ITERATIVE.md)
+> **Re-run / fix / verify commands:** see [AZURE_CLOUDSHELL_ITERATIVE.md](./AZURE_CLOUDSHELL_ITERATIVE.md)  
+> **Manual step-by-step (no scripts):** see [AZURE_MANUAL_STEP_BY_STEP.md](./AZURE_MANUAL_STEP_BY_STEP.md)
 
 Open [Azure Cloud Shell](https://shell.azure.com) → choose **Bash**.
 
