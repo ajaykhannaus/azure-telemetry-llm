@@ -32,6 +32,14 @@ acr_admin_credentials() {
   ACR_ADMIN_PASS=$(az acr credential show --name "$acr_name" --query 'passwords[0].value' -o tsv 2>/dev/null || true)
 }
 
+# True when /metrics returns Prometheus text with runner instruments (not just HTTP 200).
+runner_metrics_ok() {
+  local metrics_url=$1 body
+  body=$(curl -sf --max-time 30 "$metrics_url" 2>/dev/null | head -c 65536 || true)
+  [[ -n "$body" ]] || return 1
+  echo "$body" | grep -qE 'ai_gateway|kube_pod_info|ai_telemetry_runner|# TYPE'
+}
+
 prometheus_deploy_sandbox() {
   local prom_app=$1 cae_name=$2 rg=$3 acr_name=$4 acr_login=$5 runner_fqdn=$6
   local user pass

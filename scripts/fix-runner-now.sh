@@ -119,18 +119,19 @@ FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE
 [[ -n "$FQDN" ]] || { log "ERROR: no ingress FQDN"; exit 1; }
 
 for i in $(seq 1 40); do
-  if curl -sf --max-time 15 "https://${FQDN}/metrics" 2>/dev/null | grep -q ai_gateway; then
+  if runner_metrics_ok "https://${FQDN}/metrics"; then
     echo ""
     log "SUCCESS — runner is healthy"
     echo "  Metrics: https://${FQDN}/metrics"
+    curl -sf --max-time 30 "https://${FQDN}/metrics" 2>/dev/null | grep -m3 -E 'ai_gateway|kube_pod' || true
     exit 0
   fi
   code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "https://${FQDN}/metrics" 2>/dev/null || echo "000")
-  (( i == 1 || i % 4 == 0 )) && log "  poll ($i/40) /metrics HTTP ${code}"
+  (( i == 1 || i % 4 == 0 )) && log "  poll ($i/40) — /metrics HTTP ${code}"
   sleep 15
 done
 
-log "FAILED — still not healthy. Console logs:"
+log "FAILED — /metrics did not look healthy. Console logs:"
 az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
   --type console --tail 25 2>/dev/null || true
 if az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \

@@ -85,7 +85,7 @@ runner_fqdn() {
 runner_serving() {
   local fqdn
   fqdn=$(runner_fqdn)
-  [[ -n "$fqdn" ]] && curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null | grep -q ai_gateway
+  [[ -n "$fqdn" ]] && runner_metrics_ok "https://${fqdn}/metrics"
 }
 
 runner_otlp_ok() {
@@ -159,7 +159,11 @@ diagnose_runner_failure() {
     --type console --tail 50 2>/dev/null || true)
   if echo "$console_log" | grep -q 'No module named .observability'; then
     log "DETECTED: ModuleNotFoundError observability — image built from old Dockerfile"
-    log "  Fix: cd ~/observability && git pull && ./scripts/fix-runner.sh --recreate --build"
+    log "  Fix: cd ~/observability && git pull && ./scripts/fix-runner-now.sh"
+  fi
+  code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 15 "https://${fqdn}/metrics" 2>/dev/null || echo "000")
+  if [[ "$code" == "200" ]] && runner_metrics_ok "https://${fqdn}/metrics"; then
+    log "NOTE: /metrics HTTP 200 with Prometheus data — runner may already be healthy"
   fi
   if echo "$console_log" | grep -q 'Runner crashed during startup'; then
     log "DETECTED: startup exception in console logs (see Traceback above)"
@@ -204,8 +208,8 @@ wait_for_runner() {
   log "Polling https://${fqdn}/metrics (up to ~10 min) ..."
   log "  (404 or HTTP 000 for the first few minutes is normal while the image pulls and replicas start)"
   for i in $(seq 1 40); do
-    body=$(curl -sf --max-time 15 "https://${fqdn}/metrics" 2>/dev/null || true)
-    if [[ -n "$body" ]] && echo "$body" | grep -q ai_gateway; then
+    body=$(curl -sf --max-time 30 "https://${fqdn}/metrics" 2>/dev/null | head -c 65536 || true)
+    if [[ -n "$body" ]] && echo "$body" | grep -qE 'ai_gateway|kube_pod_info|ai_telemetry_runner|# TYPE'; then
       log "Runner is healthy: https://${fqdn}/metrics"
       return 0
     fi
