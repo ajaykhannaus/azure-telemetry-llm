@@ -31,7 +31,11 @@ export BOOTSTRAP_CONFIG="${BOOTSTRAP_CONFIG:-$ROOT/azure/bootstrap-azure.sandbox
 export WRITE_ENV_FILE="$ENV_FILE"
 "$ROOT/scripts/bootstrap-azure.sh" --grafana-only --no-build
 
-log "Configuring datasources ..."
+log "Waiting 30s for Azure provisioning lock to clear ..."
+sleep 30
+
+log "Configuring datasources + dashboards ..."
+export SKIP_GRAFANA_ENV_UPDATE="${SKIP_GRAFANA_ENV_UPDATE:-false}"
 "$ROOT/scripts/fix-grafana-datasources.sh"
 
 log "Grafana rebuild complete."

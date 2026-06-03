@@ -56,15 +56,60 @@ log "  Prometheus → $DS_PROM"
 log "  Loki       → $DS_LOKI"
 log "  Tempo      → $DS_TEMPO"
 
-log "Updating Grafana Container App env vars (for provisioning on restart) ..."
-az containerapp update \
-  --name "$GRAFANA_APP_NAME" \
-  --resource-group "$AZURE_RESOURCE_GROUP" \
-  --set-env-vars \
-    "PROMETHEUS_URL=${DS_PROM}" \
-    "LOKI_URL=${DS_LOKI}" \
-    "TEMPO_URL=${DS_TEMPO}" \
-  --output none
+wait_for_grafana_idle() {
+  local i prov
+  for i in $(seq 1 30); do
+    prov=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --query "properties.provisioningState" -o tsv 2>/dev/null || echo "")
+    [[ "$prov" == "Succeeded" ]] && return 0
+    [[ "$prov" == "Failed" ]] && { log "ERROR: Grafana provisioningState=Failed"; return 1; }
+    log "  waiting for Grafana provisioning ($i/30) state=${prov:-unknown} ..."
+    sleep 10
+  done
+  log "WARN: Grafana still provisioning — continuing with API configure"
+  return 0
+}
+
+update_grafana_env_vars() {
+  local attempt out
+  [[ "${SKIP_GRAFANA_ENV_UPDATE:-false}" == "true" ]] && {
+    log "SKIP Grafana env update (SKIP_GRAFANA_ENV_UPDATE=true)"
+    return 0
+  }
+  log "Updating Grafana Container App env vars (for datasource provisioning on restart) ..."
+  for attempt in $(seq 1 15); do
+    if az containerapp update \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --set-env-vars \
+        "PROMETHEUS_URL=${DS_PROM}" \
+        "LOKI_URL=${DS_LOKI}" \
+        "TEMPO_URL=${DS_TEMPO}" \
+      --output none 2>/dev/null; then
+      log "Grafana env vars updated"
+      return 0
+    fi
+    out=$(az containerapp update \
+      --name "$GRAFANA_APP_NAME" \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --set-env-vars \
+        "PROMETHEUS_URL=${DS_PROM}" \
+        "LOKI_URL=${DS_LOKI}" \
+        "TEMPO_URL=${DS_TEMPO}" \
+      --output none 2>&1 || true)
+    if echo "$out" | grep -qiE 'OperationInProgress|active provisioning operation|ContainerAppOperationInProgress'; then
+      log "  Grafana busy ($attempt/15) — wait 20s ..."
+      sleep 20
+      continue
+    fi
+    log "WARN: Grafana env update failed: $out"
+    return 0
+  done
+  log "WARN: Grafana env update timed out — datasource API config is still applied"
+  return 0
+}
+
+wait_for_grafana_idle
 
 log "Configuring datasources via Grafana API ..."
 python3 - "$GRAFANA_URL" "$GRAFANA_ADMIN_PASSWORD" "$DS_PROM" "$DS_LOKI" "$DS_TEMPO" <<'PY'
@@ -170,6 +215,8 @@ upsert_env() {
 upsert_env PROMETHEUS_URL "$DS_PROM"
 upsert_env LOKI_URL "$DS_LOKI"
 upsert_env TEMPO_URL "$DS_TEMPO"
+
+update_grafana_env_vars
 
 echo ""
 log "Done."
