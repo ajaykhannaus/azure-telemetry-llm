@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Patch Grafana Prometheus/Loki/Tempo datasource URLs via API (no image rebuild).
+# Create/update Grafana Prometheus, Loki, and Tempo datasources (Azure internal HTTPS URLs).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -27,6 +27,7 @@ GRAFANA_APP_NAME="${GRAFANA_APP_NAME:-grafana-telemetry-dev}"
 GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-admin}"
 
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+az extension add --name containerapp --upgrade --yes --output none 2>/dev/null || true
 
 GRAFANA_FQDN=$(az containerapp show --name "$GRAFANA_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
   --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
@@ -50,11 +51,22 @@ validate_ds_url Prometheus "$DS_PROM"
 validate_ds_url Loki "$DS_LOKI"
 validate_ds_url Tempo "$DS_TEMPO"
 
-log "Patching datasources on $GRAFANA_URL"
+log "Target Grafana: $GRAFANA_URL"
 log "  Prometheus → $DS_PROM"
 log "  Loki       → $DS_LOKI"
 log "  Tempo      → $DS_TEMPO"
 
+log "Updating Grafana Container App env vars (for provisioning on restart) ..."
+az containerapp update \
+  --name "$GRAFANA_APP_NAME" \
+  --resource-group "$AZURE_RESOURCE_GROUP" \
+  --set-env-vars \
+    "PROMETHEUS_URL=${DS_PROM}" \
+    "LOKI_URL=${DS_LOKI}" \
+    "TEMPO_URL=${DS_TEMPO}" \
+  --output none
+
+log "Configuring datasources via Grafana API ..."
 python3 - "$GRAFANA_URL" "$GRAFANA_ADMIN_PASSWORD" "$DS_PROM" "$DS_LOKI" "$DS_TEMPO" <<'PY'
 import base64
 import json
@@ -71,38 +83,52 @@ def req(method, path, body=None):
     r.add_header("Content-Type", "application/json")
     r.add_header("Authorization", f"Basic {auth}")
     try:
-        with urllib.request.urlopen(r, timeout=30) as resp:
+        with urllib.request.urlopen(r, timeout=45) as resp:
             raw = resp.read()
             return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode() if exc.fp else ""
         raise SystemExit(f"{method} {path} → HTTP {exc.code}: {detail}") from exc
 
-def upsert(name, ds_type, uid, url, extra_json=None):
+# Auth check
+try:
+    req("GET", "/api/datasources")
+except SystemExit as exc:
+    raise SystemExit(f"Grafana API auth failed at {grafana} — check GRAFANA_ADMIN_PASSWORD") from exc
+
+def remove_existing(uid, name):
+    for ds in req("GET", "/api/datasources"):
+        if ds.get("uid") == uid or ds.get("name") == name:
+            req("DELETE", f"/api/datasources/uid/{ds['uid']}")
+            print(f"  removed old {name} (uid={ds.get('uid')})")
+
+def create(name, ds_type, uid, url, extra_json=None, is_default=False):
+    remove_existing(uid, name)
     payload = {
         "name": name,
         "type": ds_type,
         "access": "proxy",
         "url": url,
         "uid": uid,
-        "isDefault": ds_type == "prometheus",
+        "orgId": 1,
+        "isDefault": is_default,
         "jsonData": {"tlsSkipVerify": True, **(extra_json or {})},
     }
-    existing = next((d for d in req("GET", "/api/datasources") if d.get("uid") == uid), None)
-    if existing:
-        payload["id"] = existing["id"]
-        payload["orgId"] = existing.get("orgId", 1)
-        req("PUT", f"/api/datasources/uid/{uid}", payload)
-        print(f"  updated {name} → {url}")
-    else:
-        req("POST", "/api/datasources", payload)
-        print(f"  created {name} → {url}")
+    result = req("POST", "/api/datasources", payload)
+    print(f"  created {name} → {url} (id={result.get('datasource', {}).get('id', result.get('id', '?'))})")
 
-upsert("Prometheus", "prometheus", "prometheus-ds", prom_url, {
+# Order: Prometheus → Tempo → Loki (Loki derivedFields reference Tempo)
+create("Prometheus", "prometheus", "prometheus-ds", prom_url, {
     "timeInterval": "10s",
     "exemplarTraceIdDestinations": [{"name": "trace_id", "datasourceUid": "tempo-ds"}],
+}, is_default=True)
+create("Tempo", "tempo", "tempo-ds", tempo_url, {
+    "tracesToLogsV2": {"datasourceUid": "loki-ds", "filterByTraceID": True},
+    "tracesToMetrics": {"datasourceUid": "prometheus-ds"},
+    "serviceMap": {"datasourceUid": "prometheus-ds"},
+    "lokiSearch": {"datasourceUid": "loki-ds"},
 })
-upsert("Loki", "loki", "loki-ds", loki_url, {
+create("Loki", "loki", "loki-ds", loki_url, {
     "derivedFields": [{
         "datasourceUid": "tempo-ds",
         "matcherRegex": '"trace_id":"([a-f0-9]{32})"',
@@ -110,15 +136,19 @@ upsert("Loki", "loki", "loki-ds", loki_url, {
         "url": "${__value.raw}",
     }],
 })
-upsert("Tempo", "tempo", "tempo-ds", tempo_url, {
-    "tracesToLogsV2": {"datasourceUid": "loki-ds", "filterByTraceID": True},
-    "tracesToMetrics": {"datasourceUid": "prometheus-ds"},
-    "serviceMap": {"datasourceUid": "prometheus-ds"},
-    "lokiSearch": {"datasourceUid": "loki-ds"},
-})
+
+print("\nDatasources in Grafana:")
+for ds in req("GET", "/api/datasources"):
+    uid = ds.get("uid", "?")
+    url = ds.get("url", "?")
+    try:
+        health = req("GET", f"/api/datasources/uid/{uid}/health")
+        status = health.get("status", health.get("message", "ok"))
+    except SystemExit as exc:
+        status = f"health check failed: {exc}"
+    print(f"  - {ds.get('name')} ({uid}): {url} [{status}]")
 PY
 
-# Persist corrected URLs for future Grafana redeploys.
 upsert_env() {
   local key=$1 val=$2
   if grep -q "^${key}=" "$ENV_FILE" 2>/dev/null; then
@@ -131,4 +161,8 @@ upsert_env PROMETHEUS_URL "$DS_PROM"
 upsert_env LOKI_URL "$DS_LOKI"
 upsert_env TEMPO_URL "$DS_TEMPO"
 
-log "Done — refresh Grafana in your browser (Ctrl+Shift+R)"
+echo ""
+log "Done."
+log "  1. Open: $GRAFANA_URL/connections/datasources"
+log "  2. You should see Prometheus, Loki, Tempo (green health)"
+log "  3. Hard-refresh dashboard: Ctrl+Shift+R"
