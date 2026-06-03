@@ -6,8 +6,8 @@ providers:
     folder: "AI Telemetry"
     folderUid: "ai-telemetry-folder"
     type: file
-    disableDeletion: false
-    updateIntervalSeconds: 30
+    disableDeletion: true
+    updateIntervalSeconds: 300
     allowUiUpdates: true
     options:
       path: /var/lib/grafana/dashboards

@@ -153,11 +153,10 @@ for ds in req("GET", "/api/datasources"):
     print(f"  - {ds.get('name')} ({uid}): {url} [{status}]")
 PY
 
-log "Re-importing dashboards with pinned datasource UIDs ..."
+log "Re-importing dashboards (API sync; baked copies reload on every container start) ..."
 export GRAFANA_URL GRAFANA_ADMIN_PASSWORD
 python3 "$ROOT/scripts/setup_grafana_local.py" --dashboards-only || {
-  log "WARN: dashboard API import failed — rebuild Grafana image:"
-  log "  ./scripts/rebuild-grafana-azure.sh"
+  log "WARN: dashboard API import failed — dashboards still load from image on restart after rebuild"
 }
 
 upsert_env() {
