@@ -36,19 +36,48 @@ app_fqdn() {
     --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true
 }
 
+app_ingress_external() {
+  az containerapp show --name "$1" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.configuration.ingress.external" -o tsv 2>/dev/null || echo "false"
+}
+
+app_running_ok() {
+  local name=$1
+  local prov run
+  prov=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.provisioningState" -o tsv 2>/dev/null || echo "")
+  run=$(az containerapp show --name "$name" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "properties.runningStatus" -o tsv 2>/dev/null || echo "")
+  [[ "$prov" == "Succeeded" && "$run" == "Running" ]]
+}
+
 check_url() {
   local label=$1 url=$2 pattern=${3:-}
   if [[ -n "$pattern" ]]; then
     if curl -sf --max-time 20 "$url" 2>/dev/null | grep -q "$pattern"; then
       ok "$label — $url"
-    else
-      fail "$label — $url"
+      return 0
     fi
   elif curl -sf --max-time 20 "$url" >/dev/null 2>&1; then
     ok "$label — $url"
-  else
-    fail "$label — $url"
+    return 0
   fi
+  fail "$label — $url"
+  return 1
+}
+
+check_container_app() {
+  local label=$1 name=$2 url=$3 pattern=${4:-}
+  if [[ "$(app_ingress_external "$name")" == "true" ]]; then
+    check_url "$label" "$url" "$pattern"
+    return
+  fi
+  if app_running_ok "$name"; then
+    ok "$label — $name (internal ingress, Running)"
+    return 0
+  fi
+  fail "$label — $name (internal ingress, not Running)"
+  return 1
 }
 
 echo ""
@@ -67,10 +96,14 @@ TEMPO_FQDN=$(app_fqdn "$TEMPO_APP_NAME")
 PROM_FQDN=$(app_fqdn "$PROM_APP_NAME")
 OTEL_FQDN=$(app_fqdn "$OTEL_APP_NAME")
 
-[[ -n "$LOKI_FQDN" ]] && check_url "Loki /ready" "https://${LOKI_FQDN}/ready" || fail "Loki $LOKI_APP_NAME missing"
-[[ -n "$TEMPO_FQDN" ]] && check_url "Tempo /ready" "https://${TEMPO_FQDN}/ready" || fail "Tempo $TEMPO_APP_NAME missing"
-[[ -n "$PROM_FQDN" ]] && check_url "Prometheus /-/ready" "https://${PROM_FQDN}/-/ready" || fail "Prometheus $PROM_APP_NAME missing"
-[[ -n "$OTEL_FQDN" ]] && check_url "OTel Collector health" "https://${OTEL_FQDN}/" || log "WARN OTel Collector external health (internal-only ingress is normal)"
+[[ -n "$LOKI_FQDN" ]] && check_container_app "Loki /ready" "$LOKI_APP_NAME" "https://${LOKI_FQDN}/ready" \
+  || fail "Loki $LOKI_APP_NAME missing"
+[[ -n "$TEMPO_FQDN" ]] && check_container_app "Tempo /ready" "$TEMPO_APP_NAME" "https://${TEMPO_FQDN}/ready" \
+  || fail "Tempo $TEMPO_APP_NAME missing"
+[[ -n "$PROM_FQDN" ]] && check_container_app "Prometheus /-/ready" "$PROM_APP_NAME" "https://${PROM_FQDN}/-/ready" \
+  || fail "Prometheus $PROM_APP_NAME missing"
+[[ -n "$OTEL_FQDN" ]] && check_container_app "OTel Collector health" "$OTEL_APP_NAME" "https://${OTEL_FQDN}/" \
+  || fail "OTel Collector $OTEL_APP_NAME missing"
 
 echo ""
 log "=== Grafana ==="
