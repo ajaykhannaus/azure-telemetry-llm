@@ -17,6 +17,8 @@ COPY dashboards/provisioning/dashboards.yaml \
 
 COPY --from=dashboard-baker /out/ /var/lib/grafana/dashboards/
 
+RUN rm -f /var/lib/grafana/dashboards/grafana_dashboard.json 2>/dev/null || true
+
 ENV GF_PATHS_PROVISIONING=/etc/grafana/provisioning \
     GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_UID=ai-telemetry-executive \
     GF_USERS_DEFAULT_THEME=light \
