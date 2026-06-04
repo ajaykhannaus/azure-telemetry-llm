@@ -22,6 +22,8 @@ GRAFANA_APP_NAME="${GRAFANA_APP_NAME:-grafana-telemetry-dev}"
 GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-admin}"
 APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
 PROM_APP_NAME="${PROM_APP_NAME:-prometheus-scraper-dev}"
+OTEL_APP_NAME="${OTEL_APP_NAME:-otel-collector-dev}"
+LOKI_APP_NAME="${LOKI_APP_NAME:-loki-telemetry-dev}"
 
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
@@ -32,6 +34,21 @@ GRAFANA_URL="https://${GRAFANA_FQDN}"
 log "Grafana: $GRAFANA_URL"
 log "Runner FQDN: $(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
   --query "properties.configuration.ingress.fqdn" -o tsv)"
+
+echo ""
+log "=== Runner OTLP env (logs need this → OTel Collector → Loki) ==="
+az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT' || name=='ALLOW_MOCK_MODE']" -o table 2>/dev/null \
+  || fail "Could not read runner env"
+
+echo ""
+log "=== Observability apps ==="
+for app in "$LOKI_APP_NAME" "$OTEL_APP_NAME"; do
+  state=$(az containerapp show --name "$app" --resource-group "$AZURE_RESOURCE_GROUP" \
+    --query "{running:properties.runningStatus,prov:properties.provisioningState,replicas:properties.template.scale.minReplicas}" -o json 2>/dev/null \
+    || echo '{"error":"missing"}')
+  log "  $app: $state"
+done
 
 python3 - "$GRAFANA_URL" "$GRAFANA_ADMIN_PASSWORD" <<'PY'
 import base64
@@ -90,10 +107,55 @@ for label, promql in queries:
     except Exception as exc:
         print(f"  {label}: ERROR {exc}")
 
+print("\n=== Loki queries (Live Telemetry Events panel) ===")
+loki_queries = [
+    ("any logs (15m)", 'sum(count_over_time({service_name=~".+"} [15m]))'),
+    (
+        "telemetry_event (15m)",
+        'sum(count_over_time({service_name=~".+"} | json | line_format "{{.body}}" | json | event_type="telemetry_event" [15m]))',
+    ),
+]
+for label, logql in loki_queries:
+    try:
+        body = {
+            "queries": [{
+                "refId": "A",
+                "datasource": {"type": "loki", "uid": "loki-ds"},
+                "expr": logql,
+                "queryType": "instant",
+                "instant": True,
+            }],
+            "from": "now-15m",
+            "to": "now",
+        }
+        result = req("POST", "/api/ds/query", body)
+        err = result.get("results", {}).get("A", {}).get("error")
+        if err:
+            print(f"  {label}: ERROR {err}")
+            continue
+        frames = result.get("results", {}).get("A", {}).get("frames", [])
+        total = 0.0
+        for frame in frames:
+            for col in frame.get("data", {}).get("values") or []:
+                for v in col:
+                    if v is not None:
+                        try:
+                            total += float(v)
+                        except (TypeError, ValueError):
+                            pass
+        print(f"  {label}: {int(total)}")
+        if total == 0:
+            print("    WARN: no Loki logs — runner OTLP or OTel Collector → Loki export is broken")
+            print("    Fix: ./scripts/deploy-observability-stack.sh --build --from otel")
+    except Exception as exc:
+        print(f"  {label}: ERROR {exc}")
+
 print("\n=== Dashboards in Grafana ===")
 for d in req("GET", "/api/search?type=dash-db"):
     print(f"  {d.get('title')} uid={d.get('uid')} url={d.get('url')}")
 PY
 
 log "If Prometheus queries show 0 points, check scraper SCRAPE_TARGET on $PROM_APP_NAME"
+log "If Loki telemetry_event is 0, redeploy OTel Collector (TLS fix for Loki export):"
+log "  ./scripts/deploy-observability-stack.sh --build --from otel"
 log "If dashboards missing, run: ./scripts/fix-grafana-datasources.sh"

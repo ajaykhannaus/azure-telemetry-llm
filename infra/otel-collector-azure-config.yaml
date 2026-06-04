@@ -60,6 +60,8 @@ exporters:
 
   loki:
     endpoint: __LOKI_ENDPOINT__
+    tls:
+      insecure: true
 
 extensions:
   health_check:
