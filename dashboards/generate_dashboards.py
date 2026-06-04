@@ -844,9 +844,9 @@ def _prepend_nav(uid: str, panels: list[dict],
     return [hero, nav] + _shift_panels_y(panels, NAV_BAR_HEIGHT + HERO_HEIGHT)
 
 
-def _dashboard_nav_links(current_uid: str) -> list[dict]:
-    """Header links — do not carry template variables between dashboards."""
-    links: list[dict] = [
+def _dashboard_nav_links() -> list[dict]:
+    """Compact header dropdown only — button row lives in the nav_bar_panel below the hero."""
+    return [
         {
             "title": "All dashboards",
             "tooltip": "Jump to any AI Telemetry dashboard",
@@ -859,19 +859,6 @@ def _dashboard_nav_links(current_uid: str) -> list[dict]:
             "targetBlank": False,
         },
     ]
-    for num, label, uid in DASHBOARDS_NAV:
-        if uid == current_uid:
-            continue
-        links.append({
-            "title": f"{num}. {label}",
-            "url": _dashboard_href(uid),
-            "type": "link",
-            "icon": "dashboard",
-            "includeVars": False,
-            "keepTime": True,
-            "targetBlank": False,
-        })
-    return links
 
 
 # ---------------------------------------------------------------------------
@@ -912,7 +899,7 @@ def dashboard(
         "templating": {"list": variables},
         "annotations": {"list": []},
         "panels": panels,
-        "links": _dashboard_nav_links(uid),
+        "links": _dashboard_nav_links(),
     }
 
 
