@@ -382,7 +382,7 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Hallucination rate",
+      "title": "Hallucination rate over time",
       "datasource": {
         "type": "loki",
         "uid": "loki-ds"
@@ -433,7 +433,7 @@
           "queryType": "range"
         }
       ],
-      "description": "% of judged responses where `faithfulness < 5` (0\u201310 judge scale). Source: Loki `eval_result` events (~sampled traffic). Requires evaluator enabled."
+      "description": "Rolling 5m percentage of judged responses flagged as hallucinating (`faithfulness < 5`). Source: Loki `eval_result` events."
     },
     {
       "id": 7,

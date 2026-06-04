@@ -113,6 +113,10 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "% of judged responses where `faithfulness < 5` (0–10 judge scale). "
         "Source: Loki `eval_result` events (~sampled traffic). Requires evaluator enabled."
     ),
+    "Hallucination rate over time": (
+        "Rolling 5m percentage of judged responses flagged as hallucinating (`faithfulness < 5`). "
+        "Source: Loki `eval_result` events."
+    ),
     "Factual accuracy": (
         "Mean judge `faithfulness` × 10, shown as 0–100%. "
         "Higher is more factually aligned with sources/context."

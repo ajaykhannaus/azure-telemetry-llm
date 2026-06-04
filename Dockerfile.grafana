@@ -1,5 +1,5 @@
 # Grafana image with AI Telemetry dashboards + datasources pre-provisioned.
-# On first boot, Grafana picks up all 8 dashboards automatically from
+# On first boot, Grafana picks up all 9 dashboards automatically from
 # /var/lib/grafana/dashboards and wires the Prometheus / Loki / Tempo
 # datasources from /etc/grafana/provisioning/datasources.
 FROM grafana/grafana:11.3.0
@@ -27,6 +27,7 @@ COPY dashboards/01-executive-overview.json  \
 RUN rm -f /var/lib/grafana/dashboards/grafana_dashboard.json 2>/dev/null || true
 
 ENV GF_PATHS_PROVISIONING=/etc/grafana/provisioning
+ENV GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH=/var/lib/grafana/dashboards/01-executive-overview.json
 ENV GF_USERS_DEFAULT_THEME=light
 
 EXPOSE 3000

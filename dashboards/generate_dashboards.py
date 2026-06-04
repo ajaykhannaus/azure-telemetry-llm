@@ -1051,7 +1051,7 @@ def build_d5() -> dict:
         ),
 
         timeseries_panel(
-            "Hallucination rate",
+            "Hallucination rate over time",
             [_loki_target(
                 _loki_ratio(
                     f'sum(count_over_time({_eval} | faithfulness < 5 [5m]))',
@@ -1594,7 +1594,7 @@ def build_d8() -> dict:
                     "{{model_name}}", "B",
                 ),
             ],
-            unit="short", decimals=2, axis_soft_max=5,
+            unit="percent", decimals=1, axis_soft_max=100,
             grid=_grid(0, 8, 12, 8), datasource=DS_LOKI,
         ),
         timeseries_panel(

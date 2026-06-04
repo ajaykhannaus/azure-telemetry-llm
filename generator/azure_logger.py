@@ -164,7 +164,7 @@ def log_login_event(event: dict[str, Any]) -> None:
     """Emit a login/session-start event for user-level observability dashboards."""
     from generator.prompt_logger import _current_trace_id
 
-    logging.getLogger("generator.telemetry_event").info(
+    logging.getLogger("generator.login_event").info(
         "login_event",
         extra={
             "event_type":   "login_event",

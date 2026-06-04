@@ -26,7 +26,7 @@ Every request triggers `record_metrics()` once. Dashboards **query** the stored 
 **Source code:** `generator/otel_metrics.py` → `record_metrics()`  
 **Canonical names:** `generator/semantic_conventions.py` → `METRIC_*` constants  
 **Alert rules:** `rules.yml`  
-**Dashboards:** `dashboards/01-*.json` through `dashboards/08-*.json`
+**Dashboards:** `dashboards/01-*.json` through `dashboards/09-*.json`
 
 ---
 
@@ -296,22 +296,19 @@ A value of `14.4` means "burning 14.4× faster than sustainable" → page on-cal
 
 ## Dashboard-by-dashboard metric map
 
-### Dashboard 01 — Executive Overview
+### Dashboard 1 — Request & Traffic Metrics
 
-**Audience:** Leadership, on-call lead — "Are we healthy?"
+**Audience:** Product / ops — "How much traffic is flowing and to whom?"
 
 | Panel | Metric / query | What it tells you |
 |-------|----------------|-------------------|
-| Availability (6h SLI) | `ai_gateway:sli:availability:6h` | % of successful requests over 6 hours |
-| Error Budget Remaining | `ai_gateway:slo:error_budget_remaining` | How much monthly error budget is left |
-| Requests / min | `rate(ai_gateway_request_count_total)` | Current traffic volume |
-| Error Rate | `exception_count / request_count` | % of requests failing now |
-| p99 Latency (5m) | `ai_gateway:sli:latency_p99_ms:5m` | Slowest 1% of requests — user pain metric |
-| Total Cost Today | `increase(ai_gateway_request_cost_USD_total[24h])` | Daily spend |
-| Request Rate by Model | `rate(...)` by `model_name` | Which models are busiest |
-| Error Rate Over Time | error rate over time | Trend — getting worse? |
-| SLO Burn Rate | availability burn formula | How fast error budget is draining |
-| Requests/Cost by Tenant | `increase(...)` by `tenant_id` | Who uses the gateway most |
+| Total requests | `increase(request_count[6h])` | Request volume in the selected window |
+| RPM | `rate(request_count) × 60` | Current requests per minute |
+| RPM By Model | `rate(request_count)` by `model_name` | Which models are busiest |
+| Active users/sessions | distinct `user_id` / `session_id` in Loki (5m) | Live user and session count |
+| Error Rate By Model | `exception_count / request_count` by model | Per-model failure rate |
+| Model Provider Distribution | by `model_provider` | Vendor mix (Anthropic, OpenAI, Google) |
+| Model Distribution (last 1h) | by `model_name` | Hourly model share |
 
 ---
 
@@ -335,41 +332,34 @@ A value of `14.4` means "burning 14.4× faster than sustainable" → page on-cal
 
 ---
 
-### Dashboard 03 — Latency & Performance
+### Dashboard 03 — Latency & Performance Metrics
 
 **Audience:** SRE — "Why is it slow?"
 
 | Panel | Metric / query | What it tells you |
 |-------|----------------|-------------------|
-| p50 / p95 / p99 | `histogram_quantile` on duration | Full latency distribution |
-| Current p99/p95/p50 | single-number stat panels | At-a-glance latency |
-| Avg Latency | `_sum / _count` | Mean (less useful than percentiles, but simple) |
-| Latency Heatmap | duration buckets over time | Visual pattern of slow periods |
-| p95 by Model | percentile by `model_name` | Which models are slowest |
-| p95 by SLA Tier | percentile by environment/tier | Premium vs standard client experience |
-| Latency Phase Breakdown (Loki) | `queue_wait_ms`, `model_inference_ms`, `stream_response_ms` from logs | **Where** time is spent (queue vs model vs streaming) |
-| Tokens / Second (Loki) | `tokens_per_second` from logs | Streaming throughput |
-| First-Token Latency (Loki) | `first_token_ms` | Time-to-first-token for streaming |
-| p99 with Exemplars | duration + Tempo link | Click slow point → open trace |
+| End-to-end response latency | `_sum / _count` on duration histogram | Average gateway response time |
+| Request Latency — p50 / p95 / p99 | `histogram_quantile` on duration | Full latency distribution |
+| Model Specific Latency | p95 by `model_name` | Which models are slowest |
+| First token latency (Model Based) | Loki `first_token_ms` (streaming) | Time-to-first-token |
+| Queue delays | Loki `queue_wait_ms` | Time waiting before model inference |
 
 **Why Loki for phase breakdown?** Phase timings (`queue_wait_ms`, etc.) are high-cardinality per request — stored in logs and traces, not Prometheus counters.
 
 ---
 
-### Dashboard 04 — Token & Cost Analytics
+### Dashboard 4 — Cost & Usage Metrics
 
 **Audience:** FinOps — "How much are we spending?"
 
 | Panel | Metric / query | What it tells you |
 |-------|----------------|-------------------|
-| Total Cost Today | `increase(cost[24h])` | Daily spend headline |
-| Cost Rate (USD/min) | `rate(cost) * 60` | Current burn rate |
-| Total/Prompt/Completion/Cache Tokens | `increase(token[24h])` by `token_type` | Token volume breakdown |
-| Cost Rate by Model/Tenant | `rate(cost)` grouped | Who/what drives spend |
-| Cost Share by Model | proportional breakdown | Model cost mix |
-| Budget Utilisation (Loki) | `daily_spend_usd / budget_usd` from logs | Per-tenant budget consumption |
-| Budget-Exhausted Events (Loki) | `budget_exhausted=true` | Clients hitting daily cap |
-| Cache vs Prompt Tokens | cache_read vs prompt rate | Caching cost savings |
+| Cost per request | Loki `cost_usd` avg | Average USD per request |
+| Cost per user/session | total cost ÷ active users/sessions | Spend per active user or session |
+| Daily/monthly spend | `increase(cost[24h])` / `[30d]` | Rolling spend totals |
+| Total cost breakdown | by `tenant_id` | Who drives FinOps charges |
+| Model-wise cost breakdown | by `model_name` | Which models are most expensive |
+| Cache hit savings | Loki `cache_savings_usd` | USD saved via prompt cache hits |
 
 ---
 
@@ -451,6 +441,32 @@ Mix of **simulated Kubernetes metrics** (from `pod_metrics_simulator.py` in dev)
 | Batch Duration p99 | `ai_telemetry_runner_batch_duration_seconds` | Runner processing speed |
 | Kafka Queue Depth | `ai_telemetry_runner_kafka_queue_depth` | Publish backlog |
 | Collector Export Queue | `otelcol_exporter_queue_size` | Collector backpressure |
+
+---
+
+### Dashboard 9 — User-Level Observability
+
+**Audience:** Product / platform — "Who is using the gateway and are usage patterns spiking?"
+
+Uses **Loki** on `event_type="login_event"` and `event_type="telemetry_event"`:
+
+| Panel | Source field | Meaning |
+|-------|--------------|---------|
+| Logins (24h) | `login_event` count | New session starts (turn 1) |
+| Active users (24h) | distinct `user_id` in telemetry | Daily active users |
+| Monthly active users (30d) | distinct `user_id` in login events | MAU proxy |
+| LLM usage spike (15m vs prev 15m) | token volume comparison | Sudden platform-wide usage growth |
+| Login track | `login_event` per 5m | Session-start trend |
+| Users added (daily active logins) | distinct login users per day | User growth |
+| Top 10 users — tokens | `total_tokens` by `user_id` | Heaviest token consumers |
+| Top 10 users — token rate (5m) | live token rate by user | Who is active right now |
+| Top 10 users — session time | summed `latency_ms` by user | Time spent in sessions |
+| Session usage by user | tokens by `user_id` + `session_id` | Per-session drill-down |
+| Token volume — spike detector | 5m buckets vs 1h rolling avg | Visual spike detection |
+| Top 10 users — spike ratio | 15m tokens ÷ hourly baseline share | Per-user usage anomalies |
+| Recent login events | `login_event` log stream | Live login audit |
+
+**Note:** `login_event` is emitted once per session when `turn_number == 1`.
 
 ---
 

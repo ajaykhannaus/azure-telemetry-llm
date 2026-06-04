@@ -1,9 +1,9 @@
-# Local observability stack — Prometheus + Tempo + Loki + Grafana (all 7 dashboards)
+# Local observability stack — Prometheus + Tempo + Loki + Grafana (all 9 dashboards)
 # ==================================================================================
 # Usage:
 #   cp .env.example .env        # set ALLOW_MOCK_MODE=true, ENVIRONMENT=dev
 #   docker compose -f docker-compose.observability.yml up -d
-#   open http://localhost:3001  # admin / admin
+#   open http://localhost:3000  # admin / admin
 #
 # The ai-telemetry-runner connects to the OTel Collector on localhost:4317.
 # After starting:
@@ -89,10 +89,8 @@ services:
       GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor traceToMetrics"
     volumes:
       - grafana-data:/var/lib/grafana
-      # Mount all dashboard JSON files (01–09+); avoids missing new dashboards after compose up
-      - ./dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3001:3000"
+      - "3000:3000"
     networks: [observability]
     depends_on: [prometheus, loki, tempo]
     restart: unless-stopped
