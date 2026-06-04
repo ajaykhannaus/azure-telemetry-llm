@@ -1,0 +1,664 @@
+{
+  "uid": "ai-telemetry-tokens",
+  "title": "8. Token & Context Metrics",
+  "description": "Output tokens, per-request totals, context window fill, prompt size, streaming throughput, and error spikes.",
+  "tags": [
+    "ai-telemetry",
+    "tokens",
+    "context",
+    "streaming"
+  ],
+  "schemaVersion": 39,
+  "version": 1,
+  "style": "light",
+  "refresh": "15s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "templating": {
+    "list": [
+      {
+        "type": "query",
+        "name": "tenant",
+        "label": "Tenant",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-ds"
+        },
+        "query": "label_values(ai_gateway_request_count_total, tenant_id)",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "hide": 0,
+        "refresh": 2,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "model",
+        "label": "Model",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-ds"
+        },
+        "query": "label_values(ai_gateway_request_count_total, model_name)",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "hide": 0,
+        "refresh": 2,
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
+        "sort": 1
+      },
+      {
+        "type": "query",
+        "name": "environment",
+        "label": "Environment",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus-ds"
+        },
+        "query": "label_values(ai_gateway_request_count_total, environment)",
+        "multi": false,
+        "includeAll": false,
+        "allValue": ".*",
+        "hide": 0,
+        "refresh": 2,
+        "current": {
+          "selected": true,
+          "text": "dev",
+          "value": "dev"
+        },
+        "sort": 1
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "text",
+      "title": "",
+      "options": {
+        "content": "<div style=\"display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;width:100%;padding:6px 2px 2px;\"><a href=\"/d/ai-telemetry-executive\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">1. Request & Traffic</a><a href=\"/d/ai-telemetry-traffic\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">2. Traffic Analytics</a><a href=\"/d/ai-telemetry-latency\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">3. Latency</a><a href=\"/d/ai-telemetry-cost\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">4. Cost & Usage</a><a href=\"/d/ai-telemetry-quality\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">5. Model Quality</a><a href=\"/d/ai-telemetry-safety\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">6. Safety & Security</a><a href=\"/d/ai-telemetry-infra\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">7. Infrastructure</a><a href=\"/d/ai-telemetry-tokens\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#1d4ed8;color:#fff;border:2px solid #1e40af;box-shadow:0 1px 3px rgba(30,64,175,.35);\">8. Token & Context</a><a href=\"/d/ai-telemetry-users\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">9. User Observability</a></div>",
+        "mode": "html"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
+      "targets": [],
+      "transparent": true
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Output Token Count",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"completion\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m]))",
+          "legendFormat": "Completion tokens/s",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum by (model_name) (rate(ai_gateway_request_token_total{token_type=\"completion\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Completion (output) token throughput per second, total and by model."
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Total tokens per request",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(rate(ai_gateway_request_token_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])) / clamp_min(sum(rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])), 1e-9)",
+          "legendFormat": "Avg tokens / request",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum by (model_name) (rate(ai_gateway_request_token_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])) / clamp_min(sum by (model_name) (rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])), 1e-9)",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Average prompt + completion + cache tokens per request from Prometheus token counters."
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Context Window Utilization (%)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never",
+            "axisSoftMax": 5
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | unwrap context_window_utilization_pct [5m]))",
+          "legendFormat": "Avg utilization %",
+          "refId": "A",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | unwrap context_window_utilization_pct [5m]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "queryType": "range"
+        }
+      ],
+      "description": "How full the model context window is (`context_window_utilization_pct` in logs). High values risk truncation errors."
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Prompt size",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          },
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 11,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"prompt\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])) / clamp_min(sum(rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])), 1e-9)",
+          "legendFormat": "Avg prompt tokens / request",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum by (model_name) (rate(ai_gateway_request_token_total{token_type=\"prompt\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])) / clamp_min(sum by (model_name) (rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])), 1e-9)",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Average prompt (input) tokens per request \u2014 drives cost and latency."
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Live token generation rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"completion\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[1m]))",
+          "legendFormat": "Live completion tokens/s",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum by (model_name) (rate(ai_gateway_request_token_total{token_type=\"completion\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[1m]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "1-minute rate of completion tokens \u2014 near-real-time streaming throughput."
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Streaming response latency",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | stream_response_ms > 0 | unwrap stream_response_ms [5m]))",
+          "legendFormat": "Avg stream response ms",
+          "refId": "A",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | stream_response_ms > 0 | unwrap stream_response_ms [5m]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "queryType": "range"
+        }
+      ],
+      "description": "Average `stream_response_ms` for streaming responses \u2014 time to finish sending the body."
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Tokens/sec",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tokens_per_second > 0 | unwrap tokens_per_second [5m]))",
+          "legendFormat": "Avg tokens/s",
+          "refId": "A",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tokens_per_second > 0 | unwrap tokens_per_second [5m]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "queryType": "range"
+        }
+      ],
+      "description": "Observed `tokens_per_second` from streaming requests in logs."
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Real-time error spikes",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(ai_gateway_exception_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])) or on() vector(0)",
+          "legendFormat": "Errors (5m increase)",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(rate(ai_gateway_exception_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[1m])) * 60",
+          "legendFormat": "Errors / min",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum by (error_type) (increase(ai_gateway_exception_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m]))",
+          "legendFormat": "{{error_type}}",
+          "refId": "C",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Exception count increase over 5m and per-minute error rate \u2014 detects sudden failure bursts."
+    }
+  ],
+  "links": [
+    {
+      "asDropdown": true,
+      "icon": "apps",
+      "includeVars": true,
+      "keepTime": true,
+      "tags": [
+        "ai-telemetry"
+      ],
+      "title": "All dashboards",
+      "tooltip": "Jump to any AI Telemetry dashboard",
+      "type": "dashboards",
+      "targetBlank": false
+    }
+  ]
+}

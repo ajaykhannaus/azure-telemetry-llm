@@ -26,7 +26,7 @@ Every request triggers `record_metrics()` once. Dashboards **query** the stored 
 **Source code:** `generator/otel_metrics.py` → `record_metrics()`  
 **Canonical names:** `generator/semantic_conventions.py` → `METRIC_*` constants  
 **Alert rules:** `rules.yml`  
-**Dashboards:** `dashboards/01-*.json` through `dashboards/07-*.json`
+**Dashboards:** `dashboards/01-*.json` through `dashboards/08-*.json`
 
 ---
 
@@ -315,7 +315,7 @@ A value of `14.4` means "burning 14.4× faster than sustainable" → page on-cal
 
 ---
 
-### Dashboard 02 — Traffic & Request Analytics
+### Dashboard 2 — Traffic & Request Analytics
 
 **Audience:** Product / ops — "Who is using what?"
 
@@ -373,27 +373,43 @@ A value of `14.4` means "burning 14.4× faster than sustainable" → page on-cal
 
 ---
 
-### Dashboard 05 — Model Quality & Evaluation
+### Dashboard 08 — Token & Context Metrics
 
-**Audience:** ML ops — "Are answers good?" (requires `EVAL_ENABLED=true`)
+**Audience:** ML ops / platform — "Are we filling context windows and streaming efficiently?"
+
+| Panel | Metric / query | What it tells you |
+|-------|----------------|-------------------|
+| Output Token Count | `rate(ai_gateway_request_token_total{token_type="completion"})` | Completion (output) token throughput |
+| Total tokens per request | Loki `total_tokens` | Prompt + completion + cache per request |
+| Context Window Utilization | Loki `context_window_utilization_pct` | How full the model context window is |
+| Prompt size | Loki `prompt_tokens` | Input token volume per request |
+| Live token generation rate | `rate(completion tokens[1m])` | Near-real-time output token rate |
+| Streaming response latency | Loki `stream_response_ms` (streaming only) | Time spent streaming the response body |
+| Tokens/sec | Loki `tokens_per_second` (streaming only) | Observed streaming throughput |
+| Real-time error spikes | `rate(ai_gateway_exception_count_total[1m])` vs 5m baseline | Sudden failure bursts |
+
+---
+
+### Dashboard 05 — Model Quality Metrics
+
+**Audience:** ML ops — "Are answers good?" (requires evaluator enabled / `ALLOW_MOCK_MODE=true`)
 
 Most panels use **Loki log queries** on `event_type="eval_result"`, not Prometheus:
 
 | Panel | Source field | Meaning |
 |-------|--------------|---------|
-| Avg Faithfulness | `faithfulness` (0–10) | Does the response stick to the prompt facts? |
-| Avg Relevance | `relevance` (0–10) | Does it answer what was asked? |
-| Avg Groundedness | `groundedness` (0–10) | Are claims supported by sources? |
+| Hallucination rate | `faithfulness < 5` ÷ eval count | % of judged responses flagged as hallucinating |
+| Factual accuracy | `faithfulness × 10` | Judge faithfulness on 0–100 % scale |
+| Relevance score | `relevance` (0–10) | Does it answer what was asked? |
+| Groundedness score | `groundedness` (0–10) | Are claims supported by sources? |
 | Evaluation Coverage | eval events ÷ total events | What % of traffic is being judged |
-| Evaluator Daily Tokens | `tokens_used` | Cost of running the judge LLM |
-| Low-Quality Responses | `faithfulness < 5` | Flagged bad responses |
-| Evaluator Latency | `latency_ms` on eval calls | Judge API performance |
+| Low-Quality Responses | `faithfulness < 5` | Flagged bad responses (log panel) |
 
 **Why logs not metrics?** Quality scoring is sampled (~1%) and rich — easier to store as structured log events than as Prometheus labels.
 
 ---
 
-### Dashboard 06 — Safety & PII
+### Dashboard 6 — Safety & Security Metrics
 
 **Audience:** Security / compliance
 
@@ -401,7 +417,11 @@ Uses **Loki** on `prompt_log_event` and `telemetry_event` logs:
 
 | Panel | Source | Meaning |
 |-------|--------|---------|
-| PII Detection Rate | `pii_detected=true` ÷ total prompt logs | % of prompts containing PII |
+| Toxicity score | `avg(toxicity_score)` on prompt logs | Content-safety severity (0–100 %) |
+| PII detection rate | `pii_detected=true` ÷ total prompt logs | % of prompts containing PII |
+| Prompt injection attempts | `prompt_injection_detected=true` | Heuristic injection detections |
+| Jailbreak attempts | `jailbreak_attempt=true` | Role-override / DAN-style attempts |
+| Compliance violations | `compliance_violation=true` | Policy / classification breaches |
 | PII Hits (24h) | count of PII detections | Volume of redactions |
 | PHI / PII Request Count | `data_classification` label | Requests handling sensitive data |
 | Unique Prompts Audited | distinct `prompt_hash` | Audit coverage |
@@ -412,23 +432,25 @@ Uses **Loki** on `prompt_log_event` and `telemetry_event` logs:
 
 ---
 
-### Dashboard 07 — Infra & Runner Health
+### Dashboard 7 — Infrastructure Metrics
 
 **Audience:** Platform team — "Is the pipeline healthy?"
 
-Mix of **simulated Kubernetes metrics** (from `pod_metrics_simulator.py` in dev), **runner self-metrics**, and **OTel Collector metrics**:
+Mix of **simulated Kubernetes metrics** (from `pod_metrics_simulator.py` in dev), **gateway OTel metrics**, **runner self-metrics**, and **OTel Collector metrics**:
 
 | Panel | Metric | Meaning |
 |-------|--------|---------|
-| Pods Running | `kube_pod_status_phase{phase="Running"}` | Gateway pod count (simulated in POC) |
-| HPA Desired/Current Replicas | `kube_hpa_status_*` | Auto-scaling state |
+| CPU utilization | `container_cpu_usage_seconds_total` ÷ running pods | Average CPU load per gateway pod |
+| Model throughput | `rate(ai_gateway_request_token_total{token_type="completion"})` | Completion tokens per second |
+| OOM failures | `kube_pod_container_oom_killed_total` | Out-of-memory container terminations |
+| Pod/container health | `replicas_available / spec_replicas` | Deployment readiness % |
+| Auto-scaling events | `kube_horizontalpodautoscaler_scaling_events_total` | HPA scale-up / scale-down count |
+| API error rate | `request_count{status="error"}` ÷ total requests | Gateway API error percentage |
+| HPA Current/Desired | `kube_hpa_status_*` | Replica targets |
 | Pod Restarts | `kube_pod_container_status_restarts_total` | Crash loops |
-| Node Memory Available % | `node_memory_*` | Cluster capacity |
 | Batch Duration p99 | `ai_telemetry_runner_batch_duration_seconds` | Runner processing speed |
 | Kafka Queue Depth | `ai_telemetry_runner_kafka_queue_depth` | Publish backlog |
-| Publish Errors | `ai_telemetry_runner_publish_errors_total` | Event Hubs failures |
 | Collector Export Queue | `otelcol_exporter_queue_size` | Collector backpressure |
-| Collector Send Failures | `otelcol_exporter_send_failed_*` | Tempo/Prometheus/Loki export errors |
 
 ---
 

@@ -1,14 +1,15 @@
 {
   "uid": "ai-telemetry-executive",
-  "title": "1 \u2014 AI Gateway: Executive Overview",
-  "description": "SLO availability, error budget, cost and traffic at a glance.",
+  "title": "1. Request & Traffic Metrics",
+  "description": "Request volume, RPM, active users/sessions, model mix, and error rates.",
   "tags": [
     "ai-telemetry",
-    "slo",
-    "executive"
+    "traffic",
+    "requests"
   ],
   "schemaVersion": 39,
   "version": 1,
+  "style": "light",
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -21,45 +22,12 @@
   "templating": {
     "list": [
       {
-        "type": "datasource",
-        "name": "DS_PROMETHEUS",
-        "label": "Prometheus",
-        "pluginId": "prometheus",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_LOKI",
-        "label": "Loki",
-        "pluginId": "loki",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_TEMPO",
-        "label": "Tempo",
-        "pluginId": "tempo",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
         "type": "query",
         "name": "tenant",
         "label": "Tenant",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, tenant_id)",
         "multi": true,
@@ -67,7 +35,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -76,7 +48,7 @@
         "label": "Model",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, model_name)",
         "multi": true,
@@ -84,7 +56,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -93,7 +69,7 @@
         "label": "Environment",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, environment)",
         "multi": false,
@@ -101,56 +77,57 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "dev",
+          "value": "dev"
+        },
         "sort": 1
       }
     ]
   },
   "annotations": {
-    "list": [
-      {
-        "name": "Alerts",
-        "type": "alert",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "enable": true,
-        "hide": false,
-        "iconColor": "red"
-      }
-    ]
+    "list": []
   },
   "panels": [
     {
       "id": 1,
+      "type": "text",
+      "title": "",
+      "options": {
+        "content": "<div style=\"display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;width:100%;padding:6px 2px 2px;\"><a href=\"/d/ai-telemetry-executive\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#1d4ed8;color:#fff;border:2px solid #1e40af;box-shadow:0 1px 3px rgba(30,64,175,.35);\">1. Request & Traffic</a><a href=\"/d/ai-telemetry-traffic\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">2. Traffic Analytics</a><a href=\"/d/ai-telemetry-latency\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">3. Latency</a><a href=\"/d/ai-telemetry-cost\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">4. Cost & Usage</a><a href=\"/d/ai-telemetry-quality\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">5. Model Quality</a><a href=\"/d/ai-telemetry-safety\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">6. Safety & Security</a><a href=\"/d/ai-telemetry-infra\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">7. Infrastructure</a><a href=\"/d/ai-telemetry-tokens\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">8. Token & Context</a><a href=\"/d/ai-telemetry-users\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">9. User Observability</a></div>",
+        "mode": "html"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 3
+      },
+      "targets": [],
+      "transparent": true
+    },
+    {
+      "id": 2,
       "type": "stat",
-      "title": "Availability (6h SLI)",
+      "title": "Total requests",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent",
-          "decimals": 3,
+          "unit": "short",
+          "decimals": 0,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 99
-              },
-              {
-                "color": "green",
-                "value": 99.5
               }
             ]
           },
@@ -171,100 +148,38 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 0,
-        "w": 4,
+        "y": 3,
+        "w": 8,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "ai_gateway:sli:availability:6h * 100",
+          "expr": "sum(increase(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[6h]))",
           "refId": "A",
           "range": true,
           "instant": false
         }
-      ]
-    },
-    {
-      "id": 2,
-      "type": "gauge",
-      "title": "Error Budget Remaining",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "min": 0,
-          "max": 100,
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 25
-              },
-              {
-                "color": "green",
-                "value": 60
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "showThresholdLabels": true
-      },
-      "gridPos": {
-        "x": 4,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "clamp_min(ai_gateway:slo:error_budget_remaining * 100, 0)",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
+      ],
+      "description": "Count of gateway requests in the selected time range. Source: Prometheus counter `ai_gateway_request_count_total` (use `increase` over the window)."
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Requests / min",
+      "title": "RPM",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "r/min",
           "decimals": 1,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -292,237 +207,35 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 0,
-        "w": 4,
+        "y": 3,
+        "w": 16,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "sum(rate(ai_gateway_request_count_total{environment=~\"$environment\"}[1m])) * 60",
+          "expr": "sum(rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[1m])) * 60",
           "refId": "A",
           "range": true,
           "instant": false
         }
-      ]
+      ],
+      "description": "Requests per minute \u2014 current traffic rate. Source: `rate(ai_gateway_request_count_total[1m]) \u00d7 60`."
     },
     {
       "id": 4,
-      "type": "stat",
-      "title": "Error Rate",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "decimals": 2,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(rate(ai_gateway_exception_count_total{environment=~\"$environment\"}[5m])) / clamp_min(sum(rate(ai_gateway_request_count_total{environment=~\"$environment\"}[5m])),1e-9) * 100",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
-    },
-    {
-      "id": 5,
-      "type": "stat",
-      "title": "p99 Latency (5m)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "decimals": 0,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 2000
-              },
-              {
-                "color": "red",
-                "value": 5000
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "ai_gateway:sli:latency_p99_ms:5m",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "type": "stat",
-      "title": "Total Cost Today (USD)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "decimals": 2,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 0,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(increase(ai_gateway_request_cost_USD_total{environment=~\"$environment\"}[24h]))",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
-    },
-    {
-      "id": 7,
-      "type": "row",
-      "title": "Request & Error Trends",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 4,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 8,
       "type": "timeseries",
-      "title": "Request Rate by Model",
+      "title": "RPM By Model",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps",
+          "unit": "r/min",
           "custom": {
             "lineWidth": 1,
             "fillOpacity": 5,
@@ -548,98 +261,32 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 5,
-        "w": 12,
+        "y": 7,
+        "w": 24,
         "h": 8
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "sum by (model_name) (rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\"}[2m]))",
+          "expr": "sum by (model_name) (rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[2m])) * 60",
           "legendFormat": "{{model_name}}",
           "refId": "A",
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Request rate per minute split by `model_name`. Shows which LLM models are receiving the most traffic."
     },
     {
-      "id": 9,
+      "id": 5,
       "type": "timeseries",
-      "title": "Error Rate Over Time",
+      "title": "Active users/sessions",
       "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 5,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(rate(ai_gateway_exception_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\"}[5m])) / clamp_min(sum(rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\"}[5m])),1e-9) * 100",
-          "legendFormat": "Error %",
-          "refId": "A",
-          "format": "time_series",
-          "range": true
-        }
-      ]
-    },
-    {
-      "id": 10,
-      "type": "row",
-      "title": "SLO Burn Rate",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 13,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "SLO Error Budget Burn Rate",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "type": "loki",
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -669,82 +316,96 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 14,
-        "w": 16,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "count(sum by (user_id) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" [5m])))",
+          "legendFormat": "Active users",
+          "refId": "A",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "count(sum by (session_id) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" [5m])))",
+          "legendFormat": "Active sessions",
+          "refId": "B",
+          "queryType": "range"
+        }
+      ],
+      "description": "Distinct `user_id` and `session_id` values seen in telemetry logs in the last 5 minutes. Source: Loki `telemetry_event` logs (not Prometheus)."
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Error Rate By Model",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
         "h": 8
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "(1 - ai_gateway:sli:availability:1h) / 0.005",
-          "legendFormat": "1h burn rate",
+          "expr": "sum by (model_name) (rate(ai_gateway_exception_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])) / clamp_min(sum by (model_name) (rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])), 1e-9) * 100",
+          "legendFormat": "{{model_name}}",
           "refId": "A",
           "format": "time_series",
           "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "(1 - ai_gateway:sli:availability:6h) / 0.005",
-          "legendFormat": "6h burn rate",
-          "refId": "B",
-          "format": "time_series",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "(1 - ai_gateway:sli:availability:30m) / 0.005",
-          "legendFormat": "30m burn rate",
-          "refId": "C",
-          "format": "time_series",
-          "range": true
         }
-      ]
+      ],
+      "description": "Percentage of requests that failed, per model: `exception_count / request_count \u00d7 100`. Spikes often indicate rate limits, timeouts, or model outages for that model."
     },
     {
-      "id": 12,
-      "type": "text",
-      "title": "Firing Alerts",
-      "options": {
-        "content": "*Requires Grafana Alertmanager \u2014 not configured in local dev.*",
-        "mode": "markdown"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 14,
-        "w": 8,
-        "h": 8
-      },
-      "targets": []
-    },
-    {
-      "id": 13,
-      "type": "row",
-      "title": "Tenant Breakdown",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 22,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 14,
-      "type": "barchart",
-      "title": "Requests by Tenant (last 1h)",
+      "id": 7,
+      "type": "piechart",
+      "title": "Model Provider Distribution",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -753,16 +414,18 @@
         "overrides": []
       },
       "options": {
-        "orientation": "auto",
-        "xTickLabelRotation": -45,
-        "barRadius": 0.03,
-        "groupWidth": 0.7,
-        "barWidth": 0.97,
-        "stacking": "none",
+        "pieType": "pie",
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "single"
         }
       },
       "gridPos": {
@@ -775,40 +438,43 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "sort_desc(sum by (tenant_id) (increase(ai_gateway_request_count_total{environment=~\"$environment\"}[1h])))",
-          "legendFormat": "{{tenant_id}}",
+          "expr": "sort_desc(sum by (model_provider) (increase(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[1h])))",
+          "legendFormat": "{{model_provider}}",
           "refId": "A",
           "instant": true
         }
-      ]
+      ],
+      "description": "Share of requests by vendor (`model_provider`: anthropic, openai, google, etc.) over the last hour."
     },
     {
-      "id": 15,
-      "type": "barchart",
-      "title": "Cost by Tenant (last 1h USD)",
+      "id": 8,
+      "type": "piechart",
+      "title": "Model Distribution (last 1h)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "currencyUSD"
+          "unit": "short"
         },
         "overrides": []
       },
       "options": {
-        "orientation": "auto",
-        "xTickLabelRotation": -45,
-        "barRadius": 0.03,
-        "groupWidth": 0.7,
-        "barWidth": 0.97,
-        "stacking": "none",
+        "pieType": "pie",
         "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
+          "displayMode": "table",
+          "placement": "right",
+          "showLegend": true,
+          "values": [
+            "value",
+            "percent"
+          ]
+        },
+        "tooltip": {
+          "mode": "single"
         }
       },
       "gridPos": {
@@ -821,25 +487,30 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total{environment=~\"$environment\"}[1h])))",
-          "legendFormat": "{{tenant_id}}",
+          "expr": "sort_desc(sum by (model_name) (increase(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[1h])))",
+          "legendFormat": "{{model_name}}",
           "refId": "A",
           "instant": true
         }
-      ]
+      ],
+      "description": "Share of requests by `model_name` over the last hour. Useful for capacity and cost planning per model."
     }
   ],
   "links": [
     {
-      "title": "All AI Telemetry Dashboards",
-      "type": "dashboards",
+      "asDropdown": true,
+      "icon": "apps",
+      "includeVars": true,
+      "keepTime": true,
       "tags": [
         "ai-telemetry"
       ],
-      "targetBlank": false,
-      "icon": "external link"
+      "title": "All dashboards",
+      "tooltip": "Jump to any AI Telemetry dashboard",
+      "type": "dashboards",
+      "targetBlank": false
     }
   ]
 }

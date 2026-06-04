@@ -1,15 +1,16 @@
 {
   "uid": "ai-telemetry-infra",
-  "title": "7 \u2014 AI Gateway: Infrastructure & Runner Health",
-  "description": "Pod health, HPA scaling, container resources, runner self-metrics, OTel Collector health.",
+  "title": "7. Infrastructure Metrics",
+  "description": "CPU utilization, model throughput, OOM failures, pod health, auto-scaling, and API error rates.",
   "tags": [
     "ai-telemetry",
     "infrastructure",
-    "runner",
+    "kubernetes",
     "sre"
   ],
   "schemaVersion": 39,
   "version": 1,
+  "style": "light",
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -22,45 +23,12 @@
   "templating": {
     "list": [
       {
-        "type": "datasource",
-        "name": "DS_PROMETHEUS",
-        "label": "Prometheus",
-        "pluginId": "prometheus",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_LOKI",
-        "label": "Loki",
-        "pluginId": "loki",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_TEMPO",
-        "label": "Tempo",
-        "pluginId": "tempo",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
         "type": "query",
         "name": "tenant",
         "label": "Tenant",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, tenant_id)",
         "multi": true,
@@ -68,7 +36,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -77,7 +49,7 @@
         "label": "Model",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, model_name)",
         "multi": true,
@@ -85,7 +57,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -94,7 +70,7 @@
         "label": "Environment",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, environment)",
         "multi": false,
@@ -102,69 +78,65 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "dev",
+          "value": "dev"
+        },
         "sort": 1
       }
     ]
   },
   "annotations": {
-    "list": [
-      {
-        "name": "Alerts",
-        "type": "alert",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "enable": true,
-        "hide": false,
-        "iconColor": "red"
-      }
-    ]
+    "list": []
   },
   "panels": [
     {
       "id": 1,
-      "type": "row",
-      "title": "Pod & Replica Health",
-      "collapsed": false,
+      "type": "text",
+      "title": "",
+      "options": {
+        "content": "<div style=\"display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;width:100%;padding:6px 2px 2px;\"><a href=\"/d/ai-telemetry-executive\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">1. Request & Traffic</a><a href=\"/d/ai-telemetry-traffic\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">2. Traffic Analytics</a><a href=\"/d/ai-telemetry-latency\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">3. Latency</a><a href=\"/d/ai-telemetry-cost\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">4. Cost & Usage</a><a href=\"/d/ai-telemetry-quality\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">5. Model Quality</a><a href=\"/d/ai-telemetry-safety\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">6. Safety & Security</a><a href=\"/d/ai-telemetry-infra\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#1d4ed8;color:#fff;border:2px solid #1e40af;box-shadow:0 1px 3px rgba(30,64,175,.35);\">7. Infrastructure</a><a href=\"/d/ai-telemetry-tokens\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">8. Token & Context</a><a href=\"/d/ai-telemetry-users\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">9. User Observability</a></div>",
+        "mode": "html"
+      },
       "gridPos": {
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 1
+        "h": 3
       },
-      "panels": []
+      "targets": [],
+      "transparent": true
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Running Pods",
+      "title": "CPU utilization",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
+          "unit": "percent",
+          "decimals": 1,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "green",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 1
+                "value": 70
               },
               {
-                "color": "green",
-                "value": 2
+                "color": "red",
+                "value": 90
               }
             ]
           },
@@ -185,37 +157,38 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 1,
-        "w": 3,
+        "y": 3,
+        "w": 4,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "sum(kube_pod_status_phase{namespace=\"ai-gateway-ns\", phase=\"Running\"})",
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"ai-gateway-ns\", container=\"ai-gateway\"}[5m])) / clamp_min(sum(kube_pod_status_phase{namespace=\"ai-gateway-ns\", phase=\"Running\"}), 1) * 100",
           "refId": "A",
           "range": true,
           "instant": false
         }
-      ]
+      ],
+      "description": "Average CPU usage per running gateway pod: `rate(container_cpu_usage_seconds_total) / running_pod_count \u00d7 100`."
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "HPA Desired Replicas",
+      "title": "Model throughput",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
+          "unit": "tps",
+          "decimals": 1,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -242,44 +215,45 @@
         "textMode": "auto"
       },
       "gridPos": {
-        "x": 3,
-        "y": 1,
-        "w": 3,
+        "x": 4,
+        "y": 3,
+        "w": 4,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"ai-gateway-ns\"}",
+          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"completion\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m]))",
           "refId": "A",
           "range": true,
           "instant": false
         }
-      ]
+      ],
+      "description": "Completion (output) tokens per second: `rate(ai_gateway_request_token_total{token_type=\"completion\"})`."
     },
     {
       "id": 4,
       "type": "stat",
-      "title": "Available Replicas",
+      "title": "OOM failures",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "green",
                 "value": null
               },
               {
@@ -287,8 +261,8 @@
                 "value": 1
               },
               {
-                "color": "green",
-                "value": 2
+                "color": "red",
+                "value": 3
               }
             ]
           },
@@ -308,38 +282,165 @@
         "textMode": "auto"
       },
       "gridPos": {
-        "x": 6,
-        "y": 1,
-        "w": 3,
+        "x": 8,
+        "y": 3,
+        "w": 4,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "kube_deployment_status_replicas_available{namespace=\"ai-gateway-ns\"}",
+          "expr": "sum(increase(kube_pod_container_oom_killed_total{namespace=\"ai-gateway-ns\"}[24h])) or vector(0)",
           "refId": "A",
           "range": true,
           "instant": false
         }
-      ]
+      ],
+      "description": "Container out-of-memory kills in the gateway namespace (`kube_pod_container_oom_killed_total`)."
     },
     {
       "id": 5,
       "type": "stat",
-      "title": "Pod Restart Count (1h)",
+      "title": "Pod/container health",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 3,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "kube_deployment_status_replicas_available{namespace=\"ai-gateway-ns\"} / clamp_min(kube_deployment_spec_replicas{namespace=\"ai-gateway-ns\"}, 1) * 100",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "description": "Deployment readiness: available replicas \u00f7 desired replicas \u00d7 100."
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Auto-scaling events",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 3,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(kube_horizontalpodautoscaler_scaling_events_total{namespace=\"ai-gateway-ns\"}[24h])) or vector(0)",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "description": "HPA scale-up/down events in 24h (`kube_horizontalpodautoscaler_scaling_events_total`)."
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "API error rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -350,7 +451,7 @@
               },
               {
                 "color": "yellow",
-                "value": 1
+                "value": 2
               },
               {
                 "color": "red",
@@ -374,74 +475,8 @@
         "textMode": "auto"
       },
       "gridPos": {
-        "x": 9,
-        "y": 1,
-        "w": 3,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"ai-gateway-ns\"}[1h]))",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "type": "stat",
-      "title": "Node Memory Available",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "decimals": 1,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 20
-              },
-              {
-                "color": "green",
-                "value": 40
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 1,
+        "x": 20,
+        "y": 3,
         "w": 4,
         "h": 4
       },
@@ -449,113 +484,158 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes * 100",
+          "expr": "sum(rate(ai_gateway_request_count_total{status=\"error\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])) / clamp_min(sum(rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])), 1e-9) * 100",
           "refId": "A",
           "range": true,
           "instant": false
         }
-      ]
-    },
-    {
-      "id": 7,
-      "type": "stat",
-      "title": "Node Ready",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "kube_node_status_condition{condition=\"Ready\",status=\"True\"}",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
+      ],
+      "description": "Gateway API errors: `request_count{status=error}` \u00f7 total requests \u00d7 100."
     },
     {
       "id": 8,
-      "type": "text",
-      "title": "Infrastructure Alerts",
-      "options": {
-        "content": "*Requires Grafana Alertmanager \u2014 not configured in local dev.*",
-        "mode": "markdown"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": []
-    },
-    {
-      "id": 9,
       "type": "row",
-      "title": "HPA Scaling",
+      "title": "Infrastructure Trends",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 5,
+        "y": 7,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 10,
+      "id": 9,
       "type": "timeseries",
-      "title": "HPA Current vs Desired Replicas",
+      "title": "CPU utilization",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"ai-gateway-ns\", container=\"ai-gateway\"}[5m])) / clamp_min(sum(kube_pod_status_phase{namespace=\"ai-gateway-ns\", phase=\"Running\"}), 1) * 100",
+          "legendFormat": "CPU % per pod (avg cores)",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Average CPU usage per running gateway pod: `rate(container_cpu_usage_seconds_total) / running_pod_count \u00d7 100`."
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Model throughput",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "tps",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"completion\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m]))",
+          "legendFormat": "Completion tokens/s",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum by (model_name) (rate(ai_gateway_request_token_total{token_type=\"completion\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Completion (output) tokens per second: `rate(ai_gateway_request_token_total{token_type=\"completion\"})`."
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "OOM failures",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -585,7 +665,275 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 6,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(kube_pod_container_oom_killed_total{namespace=\"ai-gateway-ns\"}[1h])) or vector(0)",
+          "legendFormat": "OOM events / h",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Container out-of-memory kills in the gateway namespace (`kube_pod_container_oom_killed_total`)."
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Pod/container health",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "kube_deployment_status_replicas_available{namespace=\"ai-gateway-ns\"} / clamp_min(kube_deployment_spec_replicas{namespace=\"ai-gateway-ns\"}, 1) * 100",
+          "legendFormat": "Available %",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(kube_pod_status_phase{namespace=\"ai-gateway-ns\", phase=\"Running\"})",
+          "legendFormat": "Running pods",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Deployment readiness: available replicas \u00f7 desired replicas \u00d7 100."
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Auto-scaling events",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(kube_horizontalpodautoscaler_scaling_events_total{namespace=\"ai-gateway-ns\", direction=\"up\"}[1h])) or vector(0)",
+          "legendFormat": "scale up",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(kube_horizontalpodautoscaler_scaling_events_total{namespace=\"ai-gateway-ns\", direction=\"down\"}[1h])) or vector(0)",
+          "legendFormat": "scale down",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "HPA scale-up/down events in 24h (`kube_horizontalpodautoscaler_scaling_events_total`)."
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "API error rate",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          },
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(rate(ai_gateway_request_count_total{status=\"error\",environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])) / clamp_min(sum(rate(ai_gateway_request_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m])), 1e-9) * 100",
+          "legendFormat": "Error %",
+          "refId": "A",
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum by (error_type) (rate(ai_gateway_exception_count_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[5m]))",
+          "legendFormat": "{{error_type}}",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
+        }
+      ],
+      "description": "Gateway API errors: `request_count{status=error}` \u00f7 total requests \u00d7 100."
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "HPA Scaling",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "HPA Current vs Desired Replicas",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 33,
         "w": 12,
         "h": 8
       },
@@ -593,7 +941,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"ai-gateway-ns\"}",
           "legendFormat": "current",
@@ -604,7 +952,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "kube_horizontalpodautoscaler_status_desired_replicas{namespace=\"ai-gateway-ns\"}",
           "legendFormat": "desired",
@@ -615,7 +963,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "kube_horizontalpodautoscaler_spec_min_replicas{namespace=\"ai-gateway-ns\"}",
           "legendFormat": "min",
@@ -626,7 +974,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "kube_horizontalpodautoscaler_spec_max_replicas{namespace=\"ai-gateway-ns\"}",
           "legendFormat": "max",
@@ -634,15 +982,16 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Horizontal Pod Autoscaler current, desired, min, and max replica counts."
     },
     {
-      "id": 11,
+      "id": 17,
       "type": "timeseries",
       "title": "Pod Restart Rate",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -672,7 +1021,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 6,
+        "y": 33,
         "w": 12,
         "h": 8
       },
@@ -680,7 +1029,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "sum by (pod) (rate(kube_pod_container_status_restarts_total{namespace=\"ai-gateway-ns\"}[15m]))",
           "legendFormat": "{{pod}}",
@@ -688,28 +1037,29 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Container restart rate per pod \u2014 elevated values suggest crash loops."
     },
     {
-      "id": 12,
+      "id": 18,
       "type": "row",
       "title": "Container Resources",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 14,
+        "y": 41,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 13,
+      "id": 19,
       "type": "timeseries",
       "title": "Container Memory RSS by Pod",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -739,7 +1089,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 15,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -747,7 +1097,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "container_memory_rss{namespace=\"ai-gateway-ns\", container=\"ai-gateway\"}",
           "legendFormat": "{{pod}}",
@@ -755,15 +1105,16 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Resident memory (`container_memory_rss`) per ai-gateway pod."
     },
     {
-      "id": 14,
+      "id": 20,
       "type": "timeseries",
       "title": "Container CPU Usage by Pod",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -793,7 +1144,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 15,
+        "y": 42,
         "w": 12,
         "h": 8
       },
@@ -801,7 +1152,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"ai-gateway-ns\", container=\"ai-gateway\"}[2m]))",
           "legendFormat": "{{pod}}",
@@ -809,15 +1160,16 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "CPU cores used per pod (`rate(container_cpu_usage_seconds_total)`)."
     },
     {
-      "id": 15,
+      "id": 21,
       "type": "timeseries",
       "title": "Node Memory Available Over Time",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -847,7 +1199,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -855,7 +1207,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "node_memory_MemAvailable_bytes",
           "legendFormat": "available",
@@ -866,7 +1218,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "node_memory_MemTotal_bytes",
           "legendFormat": "total",
@@ -874,15 +1226,16 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Cluster node memory available vs total \u2014 capacity headroom."
     },
     {
-      "id": 16,
+      "id": 22,
       "type": "timeseries",
       "title": "Node CPU Usage (user mode)",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -912,7 +1265,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 23,
+        "y": 50,
         "w": 12,
         "h": 8
       },
@@ -920,7 +1273,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "rate(node_cpu_seconds_total{mode=\"user\"}[2m]) * 100",
           "legendFormat": "cpu user %",
@@ -928,28 +1281,29 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Node CPU time in user mode \u2014 host-level utilization."
     },
     {
-      "id": 17,
+      "id": 23,
       "type": "row",
       "title": "Runner Self-Observability (NFR-014)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 31,
+        "y": 58,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 18,
+      "id": 24,
       "type": "heatmap",
       "title": "Batch Duration Heatmap",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -972,7 +1326,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 32,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -980,22 +1334,23 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "sum by (le) (rate(ai_telemetry_runner_batch_duration_seconds_bucket[2m]))",
           "format": "heatmap",
           "legendFormat": "{{le}}",
           "refId": "A"
         }
-      ]
+      ],
+      "description": "Distribution of synthetic telemetry runner batch processing times (`ai_telemetry_runner_batch_duration_seconds`)."
     },
     {
-      "id": 19,
+      "id": 25,
       "type": "timeseries",
       "title": "Kafka Queue Depth",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -1025,7 +1380,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 32,
+        "y": 59,
         "w": 12,
         "h": 8
       },
@@ -1033,7 +1388,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "ai_telemetry_runner_kafka_queue_depth",
           "legendFormat": "queue depth",
@@ -1041,15 +1396,16 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Current depth of the runner publish queue (`ai_telemetry_runner_kafka_queue_depth` gauge)."
     },
     {
-      "id": 20,
+      "id": 26,
       "type": "timeseries",
       "title": "Publish Error Rate by Reason",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -1079,7 +1435,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 40,
+        "y": 67,
         "w": 12,
         "h": 8
       },
@@ -1087,7 +1443,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "sum by (reason) (rate(ai_telemetry_runner_publish_errors_total[5m])) or label_replace(vector(0), \"reason\", \"none\", \"\", \"\")",
           "legendFormat": "{{reason}}",
@@ -1095,15 +1451,16 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Failed event publishes per second by `reason` label on `ai_telemetry_runner_publish_errors_total`."
     },
     {
-      "id": 21,
+      "id": 27,
       "type": "timeseries",
       "title": "Batch Duration p99",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -1133,7 +1490,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 40,
+        "y": 67,
         "w": 12,
         "h": 8
       },
@@ -1141,7 +1498,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "histogram_quantile(0.99, sum by (le) (rate(ai_telemetry_runner_batch_duration_seconds_bucket[5m])))",
           "legendFormat": "p99 batch duration",
@@ -1149,28 +1506,29 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "99th percentile batch processing duration \u2014 tail latency of the telemetry pipeline."
     },
     {
-      "id": 22,
+      "id": 28,
       "type": "row",
       "title": "OTel Collector Pipeline Health",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 48,
+        "y": 75,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 23,
+      "id": 29,
       "type": "timeseries",
       "title": "Collector Exporter Queue Size",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -1200,7 +1558,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 49,
+        "y": 76,
         "w": 12,
         "h": 8
       },
@@ -1208,7 +1566,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "otelcol_exporter_queue_size{exporter=\"otlp/tempo\"}",
           "legendFormat": "tempo queue",
@@ -1219,7 +1577,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "otelcol_exporter_queue_size{exporter=\"prometheusremotewrite\"}",
           "legendFormat": "prom queue",
@@ -1230,7 +1588,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "otelcol_exporter_queue_size{exporter=\"loki\"}",
           "legendFormat": "loki queue",
@@ -1238,15 +1596,16 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "OTel Collector exporter queue depth (Tempo, Prometheus remote write, Loki) \u2014 backpressure indicator."
     },
     {
-      "id": 24,
+      "id": 30,
       "type": "timeseries",
       "title": "Collector Export Failures",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -1276,7 +1635,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 49,
+        "y": 76,
         "w": 12,
         "h": 8
       },
@@ -1284,7 +1643,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "rate(otelcol_exporter_send_failed_spans[5m])",
           "legendFormat": "failed spans/s",
@@ -1295,7 +1654,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
           "expr": "rate(otelcol_exporter_send_failed_log_records[5m])",
           "legendFormat": "failed logs/s",
@@ -1303,18 +1662,23 @@
           "format": "time_series",
           "range": true
         }
-      ]
+      ],
+      "description": "Rate of failed span and log exports from the OTel Collector."
     }
   ],
   "links": [
     {
-      "title": "All AI Telemetry Dashboards",
-      "type": "dashboards",
+      "asDropdown": true,
+      "icon": "apps",
+      "includeVars": true,
+      "keepTime": true,
       "tags": [
         "ai-telemetry"
       ],
-      "targetBlank": false,
-      "icon": "external link"
+      "title": "All dashboards",
+      "tooltip": "Jump to any AI Telemetry dashboard",
+      "type": "dashboards",
+      "targetBlank": false
     }
   ]
 }

@@ -204,6 +204,8 @@ def run_one_batch() -> dict[str, Any]:
                     _record_latency_phases(event)
                     start_ok, end_ok = _publish_event(publisher, event)
                     otel.record_metrics(event)
+                    if event.get("turn_number") == 1:
+                        azure_logger.log_login_event(event)
                     azure_logger.log_event(event)
 
                     _prompt_text   = event.get("prompt_text")

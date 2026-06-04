@@ -3,7 +3,7 @@
 # Usage:
 #   cp .env.example .env        # set ALLOW_MOCK_MODE=true, ENVIRONMENT=dev
 #   docker compose -f docker-compose.observability.yml up -d
-#   open http://localhost:3000  # admin / admin
+#   open http://localhost:3001  # admin / admin
 #
 # The ai-telemetry-runner connects to the OTel Collector on localhost:4317.
 # After starting:
@@ -44,7 +44,7 @@ services:
       - --storage.tsdb.retention.time=30d
       - --web.enable-remote-write-receiver
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus.docker.yml:/etc/prometheus/prometheus.yml:ro
       - ./rules.yml:/etc/prometheus/rules.yml:ro
       - prometheus-data:/prometheus
     ports:
@@ -85,11 +85,14 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: admin
       GF_AUTH_ANONYMOUS_ENABLED: "false"
       GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_USERS_DEFAULT_THEME: light
       GF_FEATURE_TOGGLES_ENABLE: "traceqlEditor traceToMetrics"
     volumes:
       - grafana-data:/var/lib/grafana
+      # Mount all dashboard JSON files (01–09+); avoids missing new dashboards after compose up
+      - ./dashboards:/var/lib/grafana/dashboards:ro
     ports:
-      - "3000:3000"
+      - "3001:3000"
     networks: [observability]
     depends_on: [prometheus, loki, tempo]
     restart: unless-stopped

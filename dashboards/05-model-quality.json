@@ -1,7 +1,7 @@
 {
   "uid": "ai-telemetry-quality",
-  "title": "5 \u2014 AI Gateway: Model Quality & Evaluation",
-  "description": "OpenAI-as-judge faithfulness, relevance, groundedness scores by model and operation.",
+  "title": "5. Model Quality Metrics",
+  "description": "Hallucination rate, factual accuracy, relevance, and groundedness from eval_result judge scores.",
   "tags": [
     "ai-telemetry",
     "quality",
@@ -9,6 +9,7 @@
   ],
   "schemaVersion": 39,
   "version": 1,
+  "style": "light",
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -21,45 +22,12 @@
   "templating": {
     "list": [
       {
-        "type": "datasource",
-        "name": "DS_PROMETHEUS",
-        "label": "Prometheus",
-        "pluginId": "prometheus",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_LOKI",
-        "label": "Loki",
-        "pluginId": "loki",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_TEMPO",
-        "label": "Tempo",
-        "pluginId": "tempo",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
         "type": "query",
         "name": "tenant",
         "label": "Tenant",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, tenant_id)",
         "multi": true,
@@ -67,7 +35,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -76,7 +48,7 @@
         "label": "Model",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, model_name)",
         "multi": true,
@@ -84,7 +56,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -93,7 +69,7 @@
         "label": "Environment",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, environment)",
         "multi": false,
@@ -101,69 +77,65 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "dev",
+          "value": "dev"
+        },
         "sort": 1
       }
     ]
   },
   "annotations": {
-    "list": [
-      {
-        "name": "Alerts",
-        "type": "alert",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "enable": true,
-        "hide": false,
-        "iconColor": "red"
-      }
-    ]
+    "list": []
   },
   "panels": [
     {
       "id": 1,
-      "type": "row",
-      "title": "Quality Score Summary",
-      "collapsed": false,
+      "type": "text",
+      "title": "",
+      "options": {
+        "content": "<div style=\"display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;width:100%;padding:6px 2px 2px;\"><a href=\"/d/ai-telemetry-executive\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">1. Request & Traffic</a><a href=\"/d/ai-telemetry-traffic\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">2. Traffic Analytics</a><a href=\"/d/ai-telemetry-latency\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">3. Latency</a><a href=\"/d/ai-telemetry-cost\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">4. Cost & Usage</a><a href=\"/d/ai-telemetry-quality\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#1d4ed8;color:#fff;border:2px solid #1e40af;box-shadow:0 1px 3px rgba(30,64,175,.35);\">5. Model Quality</a><a href=\"/d/ai-telemetry-safety\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">6. Safety & Security</a><a href=\"/d/ai-telemetry-infra\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">7. Infrastructure</a><a href=\"/d/ai-telemetry-tokens\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">8. Token & Context</a><a href=\"/d/ai-telemetry-users\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">9. User Observability</a></div>",
+        "mode": "html"
+      },
       "gridPos": {
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 1
+        "h": 3
       },
-      "panels": []
+      "targets": [],
+      "transparent": true
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "Avg Faithfulness",
+      "title": "Hallucination rate",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "percent",
           "decimals": 1,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "green",
                 "value": null
               },
               {
                 "color": "yellow",
-                "value": 6
+                "value": 10
               },
               {
-                "color": "green",
-                "value": 8
+                "color": "red",
+                "value": 20
               }
             ]
           },
@@ -184,179 +156,122 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 1,
-        "w": 4,
+        "y": 3,
+        "w": 6,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap faithfulness [1h]))",
-          "legendFormat": "",
+          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | faithfulness < 5 [1h])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" [1h])) or on() vector(1))) * 100",
           "refId": "A",
-          "instant": true,
-          "queryType": "instant"
+          "queryType": "range",
+          "instant": false,
+          "range": true
         }
-      ]
+      ],
+      "description": "% of judged responses where `faithfulness < 5` (0\u201310 judge scale). Source: Loki `eval_result` events (~sampled traffic). Requires evaluator enabled."
     },
     {
       "id": 3,
       "type": "stat",
-      "title": "Avg Relevance",
+      "title": "Factual accuracy",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 1,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 6
-              },
-              {
-                "color": "green",
-                "value": 8
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 4,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
-          "legendFormat": "",
-          "refId": "A",
-          "instant": true,
-          "queryType": "instant"
-        }
-      ]
-    },
-    {
-      "id": 4,
-      "type": "stat",
-      "title": "Avg Groundedness",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 1,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 6
-              },
-              {
-                "color": "green",
-                "value": 8
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
-          "legendFormat": "",
-          "refId": "A",
-          "instant": true,
-          "queryType": "instant"
-        }
-      ]
-    },
-    {
-      "id": 5,
-      "type": "stat",
-      "title": "Evaluation Coverage",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
-          "decimals": 2,
+          "decimals": 1,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "red",
                 "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap faithfulness [1h])) * 10",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "Mean judge `faithfulness` \u00d7 10, shown as 0\u2013100%. Higher is more factually aligned with sources/context."
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Relevance score",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 6
+              },
+              {
+                "color": "green",
+                "value": 8
               }
             ]
           },
@@ -377,38 +292,361 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 1,
-        "w": 4,
+        "y": 3,
+        "w": 6,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
-          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" [1h])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" [1h])) or on() vector(1))) * 100",
-          "legendFormat": "",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
           "refId": "A",
-          "instant": true,
-          "queryType": "instant"
+          "queryType": "range",
+          "instant": false,
+          "range": true
         }
-      ]
+      ],
+      "description": "Mean judge `relevance` (0\u201310): does the answer address the user question?"
     },
     {
-      "id": 6,
+      "id": 5,
       "type": "stat",
-      "title": "Evaluator Daily Tokens Used",
+      "title": "Groundedness score",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "decimals": 0,
+          "decimals": 1,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 6
+              },
+              {
+                "color": "green",
+                "value": 8
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 3,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "Mean judge `groundedness` (0\u201310): are claims supported by provided context/sources?"
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Hallucination rate",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never",
+            "axisSoftMax": 30
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | faithfulness < 5 [5m])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" [5m])) or on() vector(1))) * 100",
+          "legendFormat": "Hallucination %",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "description": "% of judged responses where `faithfulness < 5` (0\u201310 judge scale). Source: Loki `eval_result` events (~sampled traffic). Requires evaluator enabled."
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Factual accuracy",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap faithfulness [1h])) * 10",
+          "legendFormat": "Factual accuracy %",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "description": "Mean judge `faithfulness` \u00d7 10, shown as 0\u2013100%. Higher is more factually aligned with sources/context."
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Relevance score",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
+          "legendFormat": "Relevance (0\u201310)",
+          "refId": "A",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "queryType": "range"
+        }
+      ],
+      "description": "Mean judge `relevance` (0\u201310): does the answer address the user question?"
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Groundedness score",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 15,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
+          "legendFormat": "Groundedness (0\u201310)",
+          "refId": "A",
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "queryType": "range"
+        }
+      ],
+      "description": "Mean judge `groundedness` (0\u201310): are claims supported by provided context/sources?"
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "Evaluation Ops",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Evaluation Coverage",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -435,39 +673,40 @@
         "textMode": "auto"
       },
       "gridPos": {
-        "x": 16,
-        "y": 1,
-        "w": 4,
+        "x": 0,
+        "y": 24,
+        "w": 6,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
-          "expr": "sum(sum_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"eval_result\" | unwrap tokens_used [24h]))",
-          "legendFormat": "",
+          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" [1h])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" [1h])) or on() vector(1))) * 100",
           "refId": "A",
-          "instant": true,
-          "queryType": "instant"
+          "queryType": "range",
+          "instant": false,
+          "range": true
         }
-      ]
+      ],
+      "description": "% of telemetry events that also have an `eval_result` log \u2014 how much traffic is quality-judged."
     },
     {
-      "id": 7,
+      "id": 12,
       "type": "stat",
       "title": "Evaluator Errors (24h)",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -502,285 +741,33 @@
         "textMode": "auto"
       },
       "gridPos": {
-        "x": 20,
-        "y": 1,
-        "w": 4,
+        "x": 6,
+        "y": 24,
+        "w": 6,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" |~ \"mock_judge_timeout\" [24h])) or on() vector(0)",
-          "legendFormat": "",
           "refId": "A",
-          "instant": true,
-          "queryType": "instant"
+          "queryType": "range",
+          "instant": false,
+          "range": true
         }
-      ]
-    },
-    {
-      "id": 8,
-      "type": "row",
-      "title": "Quality Trends Over Time",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Quality Scores (1h rolling avg)",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 6,
-        "w": 24,
-        "h": 9
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap faithfulness [1h]))",
-          "legendFormat": "faithfulness",
-          "refId": "A",
-          "queryType": "range"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
-          "legendFormat": "relevance",
-          "refId": "B",
-          "queryType": "range"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
-          "legendFormat": "groundedness",
-          "refId": "C",
-          "queryType": "range"
-        }
-      ]
-    },
-    {
-      "id": 10,
-      "type": "row",
-      "title": "Quality by Model",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 15,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 11,
-      "type": "barchart",
-      "title": "Avg Faithfulness by Model",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "orientation": "auto",
-        "xTickLabelRotation": -45,
-        "barRadius": 0.03,
-        "groupWidth": 0.7,
-        "barWidth": 0.97,
-        "stacking": "none",
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        }
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 16,
-        "w": 8,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap faithfulness [1h]))",
-          "legendFormat": "{{model_name}}",
-          "refId": "A",
-          "instant": true,
-          "queryType": "instant"
-        }
-      ]
-    },
-    {
-      "id": 12,
-      "type": "barchart",
-      "title": "Avg Relevance by Model",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "orientation": "auto",
-        "xTickLabelRotation": -45,
-        "barRadius": 0.03,
-        "groupWidth": 0.7,
-        "barWidth": 0.97,
-        "stacking": "none",
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        }
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 16,
-        "w": 8,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap relevance [1h]))",
-          "legendFormat": "{{model_name}}",
-          "refId": "A",
-          "instant": true,
-          "queryType": "instant"
-        }
-      ]
+      ],
+      "description": "Count of eval runs that failed (e.g. judge timeout) in 24h. Non-zero means quality pipeline is unhealthy."
     },
     {
       "id": 13,
-      "type": "barchart",
-      "title": "Avg Groundedness by Operation",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "orientation": "auto",
-        "xTickLabelRotation": -45,
-        "barRadius": 0.03,
-        "groupWidth": 0.7,
-        "barWidth": 0.97,
-        "stacking": "none",
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        }
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 16,
-        "w": 8,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg by (operation_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap groundedness [1h]))",
-          "legendFormat": "{{operation_name}}",
-          "refId": "A",
-          "instant": true,
-          "queryType": "instant"
-        }
-      ]
-    },
-    {
-      "id": 14,
-      "type": "row",
-      "title": "Low-Quality Events",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 24,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 15,
       "type": "logs",
-      "title": "Low-Quality Responses (faithfulness < 5)",
+      "title": "Low-Quality Responses (hallucination flagged)",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "options": {
         "dedupStrategy": "none",
@@ -791,16 +778,16 @@
         "wrapLogMessage": false
       },
       "gridPos": {
-        "x": 0,
-        "y": 25,
-        "w": 24,
-        "h": 10
+        "x": 12,
+        "y": 24,
+        "w": 12,
+        "h": 8
       },
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "{service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | faithfulness < 5",
           "refId": "A",
@@ -808,124 +795,23 @@
           "maxLines": 500,
           "legendFormat": ""
         }
-      ]
-    },
-    {
-      "id": 16,
-      "type": "timeseries",
-      "title": "Evaluator Error Rate",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 35,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" |~ \"mock_judge_timeout\" [5m])) or on() vector(0)",
-          "legendFormat": "errors/5m",
-          "refId": "A",
-          "queryType": "range"
-        }
-      ]
-    },
-    {
-      "id": 17,
-      "type": "timeseries",
-      "title": "Evaluator Latency (ms)",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "ms",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 35,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"eval_result\" | unwrap latency_ms [5m]))",
-          "legendFormat": "avg eval latency ms",
-          "refId": "A",
-          "queryType": "range"
-        }
-      ]
+      ],
+      "description": "Raw `eval_result` logs where faithfulness failed \u2014 drill-down for bad responses."
     }
   ],
   "links": [
     {
-      "title": "All AI Telemetry Dashboards",
-      "type": "dashboards",
+      "asDropdown": true,
+      "icon": "apps",
+      "includeVars": true,
+      "keepTime": true,
       "tags": [
         "ai-telemetry"
       ],
-      "targetBlank": false,
-      "icon": "external link"
+      "title": "All dashboards",
+      "tooltip": "Jump to any AI Telemetry dashboard",
+      "type": "dashboards",
+      "targetBlank": false
     }
   ]
 }
