@@ -152,6 +152,24 @@ container_cpu_usage_seconds_total = Counter(
     ["namespace", "pod", "container"],
 )
 
+kube_pod_container_status_terminated_reason = Gauge(
+    "kube_pod_container_status_terminated_reason",
+    "Describes the last reason the container was in terminated state.",
+    ["namespace", "pod", "container", "reason"],
+)
+
+kube_pod_container_oom_killed_total = Counter(
+    "kube_pod_container_oom_killed_total",
+    "Cumulative OOMKilled container terminations.",
+    ["namespace", "pod", "container"],
+)
+
+kube_hpa_scaling_events_total = Counter(
+    "kube_horizontalpodautoscaler_scaling_events_total",
+    "Number of HPA scale-up / scale-down events.",
+    ["namespace", "hpa", "direction"],
+)
+
 # ---------------------------------------------------------------------------
 # Shared state
 # ---------------------------------------------------------------------------
@@ -296,11 +314,23 @@ def _tick_body(tick: int) -> None:
     raw_desired = max(HPA_MIN, min(HPA_MAX, raw_desired + random.randint(-1, 1)))
 
     with _lock:
+        prev_replicas = _current_replicas
         _desired_replicas = raw_desired
         if _current_replicas < _desired_replicas:
             _current_replicas = min(_current_replicas + 1, _desired_replicas)
+            kube_hpa_scaling_events_total.labels(
+                namespace=NAMESPACE, hpa=HPA_NAME, direction="up",
+            ).inc()
         elif _current_replicas > _desired_replicas:
             _current_replicas = max(_current_replicas - 1, _desired_replicas)
+            kube_hpa_scaling_events_total.labels(
+                namespace=NAMESPACE, hpa=HPA_NAME, direction="down",
+            ).inc()
+        if prev_replicas != _current_replicas:
+            logger.info(
+                "HPA scaling event | %d -> %d (desired=%d)",
+                prev_replicas, _current_replicas, _desired_replicas,
+            )
         cur = _current_replicas
         des = _desired_replicas
 
@@ -328,6 +358,25 @@ def _tick_body(tick: int) -> None:
         container_cpu_usage_seconds_total.labels(
             namespace=NAMESPACE, pod=pod, container="ai-gateway"
         ).inc(cpu_inc)
+
+        if random.random() < 0.003:
+            for reason in ("OOMKilled", "Error", "Completed"):
+                kube_pod_container_status_terminated_reason.labels(
+                    namespace=NAMESPACE,
+                    pod=pod,
+                    container="ai-gateway",
+                    reason=reason,
+                ).set(0)
+            kube_pod_container_status_terminated_reason.labels(
+                namespace=NAMESPACE,
+                pod=pod,
+                container="ai-gateway",
+                reason="OOMKilled",
+            ).set(1)
+            kube_pod_container_oom_killed_total.labels(
+                namespace=NAMESPACE, pod=pod, container="ai-gateway",
+            ).inc()
+            logger.info("Pod %s OOMKilled (simulated)", pod)
 
         if random.random() < 0.005:
             kube_pod_container_status_restarts_total.labels(

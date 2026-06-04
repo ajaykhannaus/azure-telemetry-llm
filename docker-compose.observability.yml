@@ -1,4 +1,4 @@
-# Local observability stack — Prometheus + Tempo + Loki + Grafana (all 7 dashboards)
+# Local observability stack — Prometheus + Tempo + Loki + Grafana (all 9 dashboards)
 # ==================================================================================
 # Usage:
 #   cp .env.example .env        # set ALLOW_MOCK_MODE=true, ENVIRONMENT=dev
@@ -44,7 +44,7 @@ services:
       - --storage.tsdb.retention.time=30d
       - --web.enable-remote-write-receiver
     volumes:
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus.docker.yml:/etc/prometheus/prometheus.yml:ro
       - ./rules.yml:/etc/prometheus/rules.yml:ro
       - prometheus-data:/prometheus
     ports:

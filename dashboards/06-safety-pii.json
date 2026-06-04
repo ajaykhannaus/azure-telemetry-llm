@@ -1,15 +1,17 @@
 {
   "uid": "ai-telemetry-safety",
-  "title": "6 \u2014 AI Gateway: Safety & PII Compliance",
-  "description": "PII detection rates, data classification, PHI/PII volumes, prompt audit log.",
+  "title": "6. Safety & Security Metrics",
+  "description": "Toxicity score, PII detection rate, prompt injection, jailbreak, and compliance violations.",
   "tags": [
     "ai-telemetry",
     "safety",
+    "security",
     "pii",
     "compliance"
   ],
   "schemaVersion": 39,
   "version": 1,
+  "style": "light",
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -22,45 +24,12 @@
   "templating": {
     "list": [
       {
-        "type": "datasource",
-        "name": "DS_PROMETHEUS",
-        "label": "Prometheus",
-        "pluginId": "prometheus",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_LOKI",
-        "label": "Loki",
-        "pluginId": "loki",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_TEMPO",
-        "label": "Tempo",
-        "pluginId": "tempo",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
         "type": "query",
         "name": "tenant",
         "label": "Tenant",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, tenant_id)",
         "multi": true,
@@ -68,7 +37,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -77,7 +50,7 @@
         "label": "Model",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, model_name)",
         "multi": true,
@@ -85,7 +58,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -94,7 +71,7 @@
         "label": "Environment",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, environment)",
         "multi": false,
@@ -102,54 +79,118 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "dev",
+          "value": "dev"
+        },
         "sort": 1
       }
     ]
   },
   "annotations": {
-    "list": [
-      {
-        "name": "Alerts",
-        "type": "alert",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "enable": true,
-        "hide": false,
-        "iconColor": "red"
-      }
-    ]
+    "list": []
   },
   "panels": [
     {
       "id": 1,
-      "type": "row",
-      "title": "PII Detection Summary",
-      "collapsed": false,
+      "type": "text",
+      "title": "",
+      "options": {
+        "content": "<div style=\"display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;width:100%;padding:6px 2px 2px;\"><a href=\"/d/ai-telemetry-executive\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">1. Request & Traffic</a><a href=\"/d/ai-telemetry-traffic\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">2. Traffic Analytics</a><a href=\"/d/ai-telemetry-latency\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">3. Latency</a><a href=\"/d/ai-telemetry-cost\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">4. Cost & Usage</a><a href=\"/d/ai-telemetry-quality\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">5. Model Quality</a><a href=\"/d/ai-telemetry-safety\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#1d4ed8;color:#fff;border:2px solid #1e40af;box-shadow:0 1px 3px rgba(30,64,175,.35);\">6. Safety & Security</a><a href=\"/d/ai-telemetry-infra\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">7. Infrastructure</a><a href=\"/d/ai-telemetry-tokens\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">8. Token & Context</a><a href=\"/d/ai-telemetry-users\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">9. User Observability</a></div>",
+        "mode": "html"
+      },
       "gridPos": {
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 1
+        "h": 3
       },
-      "panels": []
+      "targets": [],
+      "transparent": true
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "PII Detection Rate (24h)",
+      "title": "Toxicity score",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "percent",
           "decimals": 1,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 30
+              },
+              {
+                "color": "red",
+                "value": 60
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 3,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | unwrap toxicity_score [24h])) * 100",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "Average content-safety `toxicity_score` on prompt logs, scaled to 0\u2013100%. Source: Loki `prompt_log_event`."
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "PII detection rate",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "color": {
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -184,8 +225,212 @@
         "textMode": "auto"
       },
       "gridPos": {
-        "x": 0,
-        "y": 1,
+        "x": 5,
+        "y": 3,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [24h])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" [24h])) or on() vector(1))) * 100",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "% of prompt logs with `pii_detected=true`. PII must stay in logs, not Prometheus labels."
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Prompt injection attempts",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 25
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 10,
+        "y": 3,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | prompt_injection_detected=\"true\" [24h])) or vector(0)",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "Count of prompts flagged `prompt_injection_detected=true` in 24h."
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Jailbreak attempts",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 15
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 3,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | jailbreak_attempt=\"true\" [24h])) or vector(0)",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "Count of prompts flagged `jailbreak_attempt=true` (role-override / DAN-style) in 24h."
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Compliance violations",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 20
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 3,
         "w": 4,
         "h": 4
       },
@@ -193,30 +438,329 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
-          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [24h])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" [24h])) or on() vector(1))) * 100",
-          "legendFormat": "",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | compliance_violation=\"true\" [24h])) or vector(0)",
           "refId": "A",
-          "instant": true,
-          "queryType": "instant"
+          "queryType": "range",
+          "instant": false,
+          "range": true
         }
-      ]
+      ],
+      "description": "Count of prompts with `compliance_violation=true` (policy / classification breach) in 24h."
     },
     {
-      "id": 3,
+      "id": 7,
+      "type": "row",
+      "title": "Safety Trends",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Toxicity score",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never",
+            "axisSoftMax": 100
+          },
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | unwrap toxicity_score [5m])) * 100",
+          "legendFormat": "Toxicity %",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "description": "Average content-safety `toxicity_score` on prompt logs, scaled to 0\u2013100%. Source: Loki `prompt_log_event`."
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "PII detection rate",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [5m])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" [5m])) or on() vector(1))) * 100",
+          "legendFormat": "PII %",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "description": "% of prompt logs with `pii_detected=true`. PII must stay in logs, not Prometheus labels."
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Prompt injection attempts / min",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | prompt_injection_detected=\"true\" [1m])) or vector(0)",
+          "legendFormat": "Injections/min",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "description": "Rate of detected injection attempts per minute \u2014 live security trend."
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Jailbreak attempts / min",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | jailbreak_attempt=\"true\" [1m])) or vector(0)",
+          "legendFormat": "Jailbreaks/min",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "description": "Rate of jailbreak detections per minute."
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Compliance violations / min",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 16,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | compliance_violation=\"true\" [1m])) or vector(0)",
+          "legendFormat": "Violations/min",
+          "refId": "A",
+          "queryType": "range"
+        }
+      ],
+      "description": "Rate of compliance violations per minute."
+    },
+    {
+      "id": 13,
+      "type": "row",
+      "title": "PII & Data Classification",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 24,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 14,
       "type": "stat",
       "title": "PII Events Today",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -251,8 +795,8 @@
         "textMode": "auto"
       },
       "gridPos": {
-        "x": 4,
-        "y": 1,
+        "x": 0,
+        "y": 25,
         "w": 4,
         "h": 4
       },
@@ -260,30 +804,91 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [24h])) or vector(0)",
-          "legendFormat": "",
           "refId": "A",
-          "instant": true,
-          "queryType": "instant"
+          "queryType": "range",
+          "instant": false,
+          "range": true
         }
-      ]
+      ],
+      "description": "Total prompt logs with PII detected in the last 24h."
     },
     {
-      "id": 4,
+      "id": 15,
       "type": "stat",
       "title": "PHI Requests Today",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "background",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "textMode": "auto"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 25,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=\"phi\" [24h])) or vector(0)",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "Telemetry events with `data_classification=phi` (protected health information) in 24h."
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "PII Requests Today",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -311,7 +916,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 1,
+        "y": 25,
         "w": 4,
         "h": 4
       },
@@ -319,30 +924,31 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=\"phi\" [24h])) or vector(0)",
-          "legendFormat": "",
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=\"pii\" [24h])) or vector(0)",
           "refId": "A",
-          "instant": true,
-          "queryType": "instant"
+          "queryType": "range",
+          "instant": false,
+          "range": true
         }
-      ]
+      ],
+      "description": "Telemetry events with `data_classification=pii` in 24h."
     },
     {
-      "id": 5,
+      "id": 17,
       "type": "stat",
-      "title": "PII Requests Today",
+      "title": "Unique Prompt Hashes (24h)",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "short",
           "decimals": 0,
           "color": {
-            "mode": "background"
+            "mode": "thresholds"
           },
           "thresholds": {
             "mode": "absolute",
@@ -370,7 +976,7 @@
       },
       "gridPos": {
         "x": 12,
-        "y": 1,
+        "y": 25,
         "w": 4,
         "h": 4
       },
@@ -378,82 +984,24 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=\"pii\" [24h])) or vector(0)",
-          "legendFormat": "",
-          "refId": "A",
-          "instant": true,
-          "queryType": "instant"
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "type": "stat",
-      "title": "Unique Prompt Hashes (24h)",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "count(sum by (prompt_hash) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" [24h])))",
-          "legendFormat": "",
           "refId": "A",
-          "instant": true,
-          "queryType": "instant"
+          "queryType": "range",
+          "instant": false,
+          "range": true
         }
-      ]
+      ],
+      "description": "Distinct `prompt_hash` values audited \u2014 coverage of prompt logging without storing raw text."
     },
     {
-      "id": 7,
+      "id": 18,
       "type": "piechart",
       "title": "Data Classification Distribution",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -477,16 +1025,16 @@
         }
       },
       "gridPos": {
-        "x": 20,
-        "y": 1,
-        "w": 4,
+        "x": 16,
+        "y": 25,
+        "w": 8,
         "h": 4
       },
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "sum by (data_classification) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" [1h]))",
           "legendFormat": "{{data_classification}}",
@@ -494,81 +1042,16 @@
           "instant": true,
           "queryType": "instant"
         }
-      ]
+      ],
+      "description": "Mix of `data_classification` labels (phi, pii, confidential, internal, \u2026) in the last hour."
     },
     {
-      "id": 8,
-      "type": "row",
-      "title": "PII Over Time",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "PII Detection Rate Over Time",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percent",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 6,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "(sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [5m])) / (sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" [5m])) or on() vector(1))) * 100",
-          "legendFormat": "PII %",
-          "refId": "A",
-          "queryType": "range"
-        }
-      ]
-    },
-    {
-      "id": 10,
+      "id": 19,
       "type": "timeseries",
       "title": "PII Events by Tenant",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -597,8 +1080,8 @@
         }
       },
       "gridPos": {
-        "x": 12,
-        "y": 6,
+        "x": 0,
+        "y": 29,
         "w": 12,
         "h": 8
       },
@@ -606,22 +1089,23 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "sum by (tenant_id) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | pii_detected=\"true\" [5m])) or vector(0)",
           "legendFormat": "{{tenant_id}}",
           "refId": "A",
           "queryType": "range"
         }
-      ]
+      ],
+      "description": "PII detections per `tenant_id` over time \u2014 which clients send sensitive prompts."
     },
     {
-      "id": 11,
+      "id": 20,
       "type": "barchart",
       "title": "PHI + PII Volume by Tenant (last 1h)",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -643,8 +1127,8 @@
         }
       },
       "gridPos": {
-        "x": 0,
-        "y": 14,
+        "x": 12,
+        "y": 29,
         "w": 12,
         "h": 8
       },
@@ -652,7 +1136,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "sum by (tenant_id) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=~\"phi|pii\" [1h]))",
           "legendFormat": "{{tenant_id}}",
@@ -660,81 +1144,29 @@
           "instant": true,
           "queryType": "instant"
         }
-      ]
+      ],
+      "description": "Requests handling phi or pii classification, by tenant, last hour."
     },
     {
-      "id": 12,
-      "type": "timeseries",
-      "title": "PHI Requests / min",
-      "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 14,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "${DS_LOKI}"
-          },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=\"phi\" [1m])) or vector(0)",
-          "legendFormat": "PHI req/min",
-          "refId": "A",
-          "queryType": "range"
-        }
-      ]
-    },
-    {
-      "id": 13,
+      "id": 21,
       "type": "row",
       "title": "Prompt Audit Log",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 22,
+        "y": 37,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 14,
+      "id": 22,
       "type": "logs",
       "title": "Prompt Log Events (PII-scrubbed)",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "options": {
         "dedupStrategy": "none",
@@ -746,7 +1178,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 23,
+        "y": 38,
         "w": 24,
         "h": 10
       },
@@ -754,7 +1186,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "{service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\"",
           "refId": "A",
@@ -762,28 +1194,29 @@
           "maxLines": 500,
           "legendFormat": ""
         }
-      ]
+      ],
+      "description": "Audit stream of `prompt_log_event` entries \u2014 content is scrubbed; use for security review."
     },
     {
-      "id": 15,
+      "id": 23,
       "type": "row",
       "title": "High-Risk Request Table",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 33,
+        "y": 48,
         "w": 24,
         "h": 1
       },
       "panels": []
     },
     {
-      "id": 16,
+      "id": 24,
       "type": "table",
       "title": "PHI / PII Requests with Trace Links",
       "datasource": {
         "type": "loki",
-        "uid": "${DS_LOKI}"
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -804,7 +1237,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 34,
+        "y": 49,
         "w": 24,
         "h": 8
       },
@@ -812,7 +1245,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
           "expr": "{service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"telemetry_event\" | data_classification=~\"phi|pii\" | line_format \"{.request_id} {.tenant_id} {.model_name} {.trace_id}\"",
           "refId": "A"
@@ -831,18 +1264,60 @@
             }
           }
         }
-      ]
+      ],
+      "description": "Table of sensitive requests with `request_id`, tenant, model, and `trace_id` for Tempo drill-down."
+    },
+    {
+      "id": 25,
+      "type": "logs",
+      "title": "Safety incidents (injection, jailbreak, compliance)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "prettifyLogMessage": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": false
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 57,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "{service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type = \"prompt_log_event\" | prompt_injection_detected=\"true\" or jailbreak_attempt=\"true\" or compliance_violation=\"true\"",
+          "refId": "A",
+          "queryType": "range",
+          "maxLines": 500,
+          "legendFormat": ""
+        }
+      ],
+      "description": "Log lines where any safety flag fired \u2014 combined injection, jailbreak, or compliance events."
     }
   ],
   "links": [
     {
-      "title": "All AI Telemetry Dashboards",
-      "type": "dashboards",
+      "asDropdown": true,
+      "icon": "apps",
+      "includeVars": true,
+      "keepTime": true,
       "tags": [
         "ai-telemetry"
       ],
-      "targetBlank": false,
-      "icon": "external link"
+      "title": "All dashboards",
+      "tooltip": "Jump to any AI Telemetry dashboard",
+      "type": "dashboards",
+      "targetBlank": false
     }
   ]
 }

@@ -16,13 +16,15 @@ GRAFANA = "http://localhost:3000"
 AUTH = base64.b64encode(b"admin:admin").decode()
 
 DASHBOARD_UIDS = [
-    ("Executive Overview", "ai-telemetry-executive"),
-    ("Traffic Analytics", "ai-telemetry-traffic"),
-    ("Latency Performance", "ai-telemetry-latency"),
-    ("Token Cost", "ai-telemetry-cost"),
-    ("Model Quality", "ai-telemetry-quality"),
-    ("Safety PII", "ai-telemetry-safety"),
-    ("Infra Runner", "ai-telemetry-infra"),
+    ("1. Request & Traffic Metrics", "ai-telemetry-executive"),
+    ("2. Traffic & Request Analytics", "ai-telemetry-traffic"),
+    ("3. Latency & Performance Metrics", "ai-telemetry-latency"),
+    ("4. Cost & Usage Metrics", "ai-telemetry-cost"),
+    ("5. Model Quality Metrics", "ai-telemetry-quality"),
+    ("6. Safety & Security Metrics", "ai-telemetry-safety"),
+    ("7. Infrastructure Metrics", "ai-telemetry-infra"),
+    ("8. Token & Context Metrics", "ai-telemetry-tokens"),
+    ("9. User-Level Observability", "ai-telemetry-users"),
     ("Legacy POC", "ai-telemetry-001"),
 ]
 

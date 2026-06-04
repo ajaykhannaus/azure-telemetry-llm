@@ -12,6 +12,7 @@ Public API
 ----------
 setup_structured_logging()       — call once at the very top of main()
 log_event(event: dict)           — call per LLM event inside run_one_batch()
+log_login_event(event: dict)     — call when a new session starts (turn 1)
 log_startup_config(config: dict) — call once after setup to record runner config
 """
 from __future__ import annotations
@@ -164,7 +165,10 @@ def log_event(event: dict[str, Any]) -> None:
             "completion_tokens":   event.get("completion_tokens"),
             "cache_read_tokens":   event.get("cache_read_tokens"),
             "total_tokens":        event.get("total_tokens"),
+            "context_window_tokens":          event.get("context_window_tokens"),
+            "context_window_utilization_pct": event.get("context_window_utilization_pct"),
             "cost_usd":            event.get("cost_usd"),
+            "cache_savings_usd":   event.get("cache_savings_usd"),
             "daily_spend_usd":     event.get("daily_spend_usd"),
             "budget_exhausted":    event.get("budget_exhausted"),
 
@@ -174,7 +178,13 @@ def log_event(event: dict[str, Any]) -> None:
             "error_type":          event.get("error_type"),
             "error_category":      event.get("error_category"),
             "is_retried":          event.get("is_retried"),
-            "retry_count":         event.get("retry_count"),
+        "retry_count":         event.get("retry_count"),
+
+            # ── Safety & security ────────────────────────────────────────
+            "toxicity_score":              event.get("toxicity_score"),
+            "prompt_injection_detected":   event.get("prompt_injection_detected"),
+            "jailbreak_attempt":           event.get("jailbreak_attempt"),
+            "compliance_violation":        event.get("compliance_violation"),
     }
     logging.getLogger("generator.telemetry_event").info("telemetry_event", extra=extra)
     if stdout_format() == "plain":
@@ -182,6 +192,26 @@ def log_event(event: dict[str, Any]) -> None:
             "access",
             extra={**extra, "event_type": "access_log"},
         )
+
+
+def log_login_event(event: dict[str, Any]) -> None:
+    """Emit a login/session-start event for user-level observability dashboards."""
+    from generator.prompt_logger import _current_trace_id
+
+    logging.getLogger("generator.login_event").info(
+        "login_event",
+        extra={
+            "event_type":   "login_event",
+            "user_id":      event.get("user_id"),
+            "user_email":   event.get("user_email"),
+            "session_id":   event.get("session_id"),
+            "tenant_id":    event.get("client_name"),
+            "client_name":  event.get("client_name"),
+            "auth_method":  event.get("auth_method"),
+            "trace_id":     _current_trace_id() or event.get("trace_id"),
+            "project_id":   event.get("project_id"),
+        },
+    )
 
 
 def log_startup_config(config: dict[str, Any]) -> None:

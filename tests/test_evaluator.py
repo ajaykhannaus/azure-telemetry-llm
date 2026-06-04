@@ -149,5 +149,9 @@ def test_eval_result_to_dict():
                    model="gpt-4o-mini", tokens_used=42, latency_ms=120.5)
     d = r.to_dict()
     assert d["faithfulness"] == 8
+    assert d["factual_accuracy_pct"] == 80.0
+    assert d["relevance_score"] == 9
+    assert d["groundedness_score"] == 7
+    assert d["hallucination_flag"] is False
     assert d["model"] == "gpt-4o-mini"
     assert "error" in d

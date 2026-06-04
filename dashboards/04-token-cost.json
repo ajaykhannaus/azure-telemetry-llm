@@ -1,15 +1,15 @@
 {
   "uid": "ai-telemetry-cost",
-  "title": "4 \u2014 AI Gateway: Token & Cost Analytics",
-  "description": "Token consumption, cost by model and tenant, budget utilisation, cache savings.",
+  "title": "4. Cost & Usage Metrics",
+  "description": "Cost per request, user/session spend, daily and monthly totals, breakdowns, and cache savings.",
   "tags": [
     "ai-telemetry",
     "cost",
-    "tokens",
-    "budget"
+    "usage"
   ],
   "schemaVersion": 39,
   "version": 1,
+  "style": "light",
   "refresh": "30s",
   "time": {
     "from": "now-6h",
@@ -22,45 +22,12 @@
   "templating": {
     "list": [
       {
-        "type": "datasource",
-        "name": "DS_PROMETHEUS",
-        "label": "Prometheus",
-        "pluginId": "prometheus",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_LOKI",
-        "label": "Loki",
-        "pluginId": "loki",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
-        "type": "datasource",
-        "name": "DS_TEMPO",
-        "label": "Tempo",
-        "pluginId": "tempo",
-        "multi": false,
-        "includeAll": false,
-        "hide": 0,
-        "refresh": 1,
-        "current": {}
-      },
-      {
         "type": "query",
         "name": "tenant",
         "label": "Tenant",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, tenant_id)",
         "multi": true,
@@ -68,7 +35,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -77,7 +48,7 @@
         "label": "Model",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, model_name)",
         "multi": true,
@@ -85,7 +56,11 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": ".*"
+        },
         "sort": 1
       },
       {
@@ -94,7 +69,7 @@
         "label": "Environment",
         "datasource": {
           "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
+          "uid": "prometheus-ds"
         },
         "query": "label_values(ai_gateway_request_count_total, environment)",
         "multi": false,
@@ -102,529 +77,237 @@
         "allValue": ".*",
         "hide": 0,
         "refresh": 2,
-        "current": {},
+        "current": {
+          "selected": true,
+          "text": "dev",
+          "value": "dev"
+        },
         "sort": 1
       }
     ]
   },
   "annotations": {
-    "list": [
-      {
-        "name": "Alerts",
-        "type": "alert",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "${DS_PROMETHEUS}"
-        },
-        "enable": true,
-        "hide": false,
-        "iconColor": "red"
-      }
-    ]
+    "list": []
   },
   "panels": [
     {
       "id": 1,
-      "type": "row",
-      "title": "Cost Summary",
-      "collapsed": false,
+      "type": "text",
+      "title": "",
+      "options": {
+        "content": "<div style=\"display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start;width:100%;padding:6px 2px 2px;\"><a href=\"/d/ai-telemetry-executive\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">1. Request & Traffic</a><a href=\"/d/ai-telemetry-traffic\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">2. Traffic Analytics</a><a href=\"/d/ai-telemetry-latency\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">3. Latency</a><a href=\"/d/ai-telemetry-cost\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#1d4ed8;color:#fff;border:2px solid #1e40af;box-shadow:0 1px 3px rgba(30,64,175,.35);\">4. Cost & Usage</a><a href=\"/d/ai-telemetry-quality\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">5. Model Quality</a><a href=\"/d/ai-telemetry-safety\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">6. Safety & Security</a><a href=\"/d/ai-telemetry-infra\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">7. Infrastructure</a><a href=\"/d/ai-telemetry-tokens\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">8. Token & Context</a><a href=\"/d/ai-telemetry-users\" style=\"display:inline-flex;align-items:center;padding:9px 14px;margin:0;border-radius:8px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap;letter-spacing:.01em;background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;\">9. User Observability</a></div>",
+        "mode": "html"
+      },
       "gridPos": {
         "x": 0,
         "y": 0,
         "w": 24,
-        "h": 1
+        "h": 3
       },
-      "panels": []
+      "targets": [],
+      "transparent": true
     },
     {
       "id": 2,
-      "type": "stat",
-      "title": "Total Cost Today (USD)",
+      "type": "timeseries",
+      "title": "Cost per request",
       "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "type": "loki",
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "decimals": 2,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "gridPos": {
         "x": 0,
-        "y": 1,
-        "w": 4,
-        "h": 4
+        "y": 3,
+        "w": 12,
+        "h": 8
       },
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "type": "loki",
+            "uid": "loki-ds"
           },
-          "expr": "sum(increase(ai_gateway_request_cost_USD_total[24h]))",
+          "expr": "avg(avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" | unwrap cost_usd [5m]))",
+          "legendFormat": "Avg cost / request",
           "refId": "A",
-          "range": true,
-          "instant": false
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "avg by (model_name) (avg_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" | unwrap cost_usd [5m]))",
+          "legendFormat": "{{model_name}}",
+          "refId": "B",
+          "queryType": "range"
         }
-      ]
+      ],
+      "description": "Average USD cost per request from log field `cost_usd`. Source: Loki `telemetry_event` (synthetic generator computes per-model pricing)."
     },
     {
       "id": 3,
-      "type": "stat",
-      "title": "Cost Rate (USD/min)",
+      "type": "timeseries",
+      "title": "Cost per user/session",
       "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "type": "loki",
+        "uid": "loki-ds"
       },
       "fieldConfig": {
         "defaults": {
           "unit": "currencyUSD",
-          "decimals": 4,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "gridPos": {
-        "x": 4,
-        "y": 1,
-        "w": 4,
-        "h": 4
+        "x": 12,
+        "y": 3,
+        "w": 12,
+        "h": 8
       },
       "targets": [
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "type": "loki",
+            "uid": "loki-ds"
           },
-          "expr": "sum(rate(ai_gateway_request_cost_USD_total[5m])) * 60",
+          "expr": "sum(sum by (user_id) (sum_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" | unwrap cost_usd [5m]))) / count(sum by (user_id) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" [5m])))",
+          "legendFormat": "Avg spend / active user",
           "refId": "A",
-          "range": true,
-          "instant": false
+          "queryType": "range"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(sum by (session_id) (sum_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" | unwrap cost_usd [5m]))) / count(sum by (session_id) (count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" [5m])))",
+          "legendFormat": "Avg spend / active session",
+          "refId": "B",
+          "queryType": "range"
         }
-      ]
+      ],
+      "description": "Average spend per active user or session in the window \u2014 total cost \u00f7 distinct users/sessions in logs."
     },
     {
       "id": 4,
-      "type": "stat",
-      "title": "Total Tokens Today",
+      "type": "timeseries",
+      "title": "Daily/monthly spend",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
+          "unit": "currencyUSD",
+          "custom": {
+            "lineWidth": 1,
+            "fillOpacity": 5,
+            "gradientMode": "none",
+            "stacking": {
+              "mode": "none"
+            },
+            "showPoints": "never"
+          }
         },
         "overrides": []
       },
       "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "gridPos": {
-        "x": 8,
-        "y": 1,
-        "w": 4,
-        "h": 4
+        "x": 0,
+        "y": 11,
+        "w": 24,
+        "h": 8
       },
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "sum(increase(ai_gateway_request_token_total[24h]))",
+          "expr": "sum(increase(ai_gateway_request_cost_USD_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[24h]))",
+          "legendFormat": "Daily spend (24h)",
           "refId": "A",
-          "range": true,
-          "instant": false
+          "format": "time_series",
+          "range": true
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(ai_gateway_request_cost_USD_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[30d]))",
+          "legendFormat": "Monthly spend (30d)",
+          "refId": "B",
+          "format": "time_series",
+          "range": true
         }
-      ]
+      ],
+      "description": "Total USD spent: 24h and 30d `increase` on `ai_gateway_request_cost_USD_total`."
     },
     {
       "id": 5,
-      "type": "stat",
-      "title": "Prompt Tokens Today",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(increase(ai_gateway_request_token_total{token_type=\"prompt\"}[24h]))",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "type": "stat",
-      "title": "Completion Tokens Today",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(increase(ai_gateway_request_token_total{token_type=\"completion\"}[24h]))",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
-    },
-    {
-      "id": 7,
-      "type": "stat",
-      "title": "Cache Read Tokens Today",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "decimals": 0,
-          "color": {
-            "mode": "background"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "mappings": []
-        },
-        "overrides": []
-      },
-      "options": {
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "colorMode": "background",
-        "graphMode": "area",
-        "justifyMode": "center",
-        "textMode": "auto"
-      },
-      "gridPos": {
-        "x": 20,
-        "y": 1,
-        "w": 4,
-        "h": 4
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(increase(ai_gateway_request_token_total{token_type=\"cache_read\"}[24h]))",
-          "refId": "A",
-          "range": true,
-          "instant": false
-        }
-      ]
-    },
-    {
-      "id": 8,
-      "type": "row",
-      "title": "Cost Over Time",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 5,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 9,
-      "type": "timeseries",
-      "title": "Cost Rate by Model (USD/min)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 6,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum by (model_name) (rate(ai_gateway_request_cost_USD_total{tenant_id=~\"$tenant\"}[5m])) * 60",
-          "legendFormat": "{{model_name}}",
-          "refId": "A",
-          "format": "time_series",
-          "range": true
-        }
-      ]
-    },
-    {
-      "id": 10,
-      "type": "timeseries",
-      "title": "Cost Rate by Tenant (USD/min)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 6,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum by (tenant_id) (rate(ai_gateway_request_cost_USD_total[5m])) * 60",
-          "legendFormat": "{{tenant_id}}",
-          "refId": "A",
-          "format": "time_series",
-          "range": true
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "type": "row",
-      "title": "Model Cost Breakdown",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 14,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 12,
       "type": "piechart",
-      "title": "Cost Share by Model (last 1h)",
+      "title": "Total cost breakdown",
       "datasource": {
         "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
@@ -649,175 +332,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 15,
-        "w": 8,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_USD_total[1h])))",
-          "legendFormat": "{{model_name}}",
-          "refId": "A",
-          "instant": true
-        }
-      ]
-    },
-    {
-      "id": 13,
-      "type": "barchart",
-      "title": "Cost per Model (last 24h USD)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD"
-        },
-        "overrides": []
-      },
-      "options": {
-        "orientation": "auto",
-        "xTickLabelRotation": -45,
-        "barRadius": 0.03,
-        "groupWidth": 0.7,
-        "barWidth": 0.97,
-        "stacking": "none",
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        }
-      },
-      "gridPos": {
-        "x": 8,
-        "y": 15,
-        "w": 8,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_USD_total[24h])))",
-          "legendFormat": "{{model_name}}",
-          "refId": "A",
-          "instant": true
-        }
-      ]
-    },
-    {
-      "id": 14,
-      "type": "barchart",
-      "title": "Cost per Tenant (last 24h USD)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD"
-        },
-        "overrides": []
-      },
-      "options": {
-        "orientation": "auto",
-        "xTickLabelRotation": -45,
-        "barRadius": 0.03,
-        "groupWidth": 0.7,
-        "barWidth": 0.97,
-        "stacking": "none",
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        }
-      },
-      "gridPos": {
-        "x": 16,
-        "y": 15,
-        "w": 8,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total[24h])))",
-          "legendFormat": "{{tenant_id}}",
-          "refId": "A",
-          "instant": true
-        }
-      ]
-    },
-    {
-      "id": 15,
-      "type": "row",
-      "title": "Budget Tracking",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 23,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 16,
-      "type": "bargauge",
-      "title": "Daily Budget Utilisation by Tenant",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "currencyUSD",
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 50
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        },
-        "displayMode": "lcd",
-        "showUnfilled": true
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 24,
+        "y": 19,
         "w": 12,
         "h": 8
       },
@@ -825,26 +340,74 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "uid": "prometheus-ds"
           },
-          "expr": "sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total[24h]))",
-          "instant": true,
+          "expr": "sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[24h])))",
           "legendFormat": "{{tenant_id}}",
-          "refId": "A"
+          "refId": "A",
+          "instant": true
         }
-      ]
+      ],
+      "description": "Share of 24h spend by `tenant_id` \u2014 who is driving FinOps charges."
     },
     {
-      "id": 17,
-      "type": "timeseries",
-      "title": "Budget-Exhausted Events Over Time",
+      "id": 6,
+      "type": "barchart",
+      "title": "Model-wise cost breakdown",
       "datasource": {
-        "type": "loki",
-        "uid": "${DS_LOKI}"
+        "type": "prometheus",
+        "uid": "prometheus-ds"
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "short",
+          "unit": "currencyUSD"
+        },
+        "overrides": []
+      },
+      "options": {
+        "orientation": "auto",
+        "xTickLabelRotation": -45,
+        "barRadius": 0.03,
+        "groupWidth": 0.7,
+        "barWidth": 0.97,
+        "stacking": "none",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 19,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sort_desc(sum by (model_name) (increase(ai_gateway_request_cost_USD_total{environment=~\"$environment\",tenant_id=~\"$tenant\",model_name=~\"$model\"}[24h])))",
+          "legendFormat": "{{model_name}}",
+          "refId": "A",
+          "instant": true
+        }
+      ],
+      "description": "24h spend ranked by `model_name` \u2014 which models are most expensive."
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Cache hit savings",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
           "custom": {
             "lineWidth": 1,
             "fillOpacity": 5,
@@ -869,188 +432,49 @@
         }
       },
       "gridPos": {
-        "x": 12,
-        "y": 24,
-        "w": 12,
+        "x": 0,
+        "y": 27,
+        "w": 24,
         "h": 8
       },
       "targets": [
         {
           "datasource": {
             "type": "loki",
-            "uid": "${DS_LOKI}"
+            "uid": "loki-ds"
           },
-          "expr": "sum(count_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | budget_exhausted=\"true\" [2m]))",
-          "legendFormat": "budget exhausted events",
+          "expr": "sum(sum_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" | unwrap cache_savings_usd [5m]))",
+          "legendFormat": "Cache savings USD",
           "refId": "A",
           "queryType": "range"
-        }
-      ]
-    },
-    {
-      "id": 18,
-      "type": "row",
-      "title": "Token Efficiency & Cache",
-      "collapsed": false,
-      "gridPos": {
-        "x": 0,
-        "y": 32,
-        "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 19,
-      "type": "timeseries",
-      "title": "Token Consumption Rate by Type",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "normal"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 0,
-        "y": 33,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"prompt\"}[5m]))",
-          "legendFormat": "prompt",
-          "refId": "A",
-          "format": "time_series",
-          "range": true
         },
         {
           "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
+            "type": "loki",
+            "uid": "loki-ds"
           },
-          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"completion\"}[5m]))",
-          "legendFormat": "completion",
+          "expr": "sum by (model_name) (sum_over_time({service_name=~\".+\"} | json | line_format \"{{.body}}\" | json | event_type=\"telemetry_event\" | tenant_id=~\"$tenant\" | model_name=~\"$model\" | unwrap cache_savings_usd [5m]))",
+          "legendFormat": "{{model_name}}",
           "refId": "B",
-          "format": "time_series",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"cache_read\"}[5m]))",
-          "legendFormat": "cache_read",
-          "refId": "C",
-          "format": "time_series",
-          "range": true
+          "queryType": "range"
         }
-      ]
-    },
-    {
-      "id": 20,
-      "type": "timeseries",
-      "title": "Cache Hit Tokens vs Prompt Tokens (Cost Savings)",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "${DS_PROMETHEUS}"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short",
-          "custom": {
-            "lineWidth": 1,
-            "fillOpacity": 5,
-            "gradientMode": "none",
-            "stacking": {
-              "mode": "none"
-            },
-            "showPoints": "never"
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "gridPos": {
-        "x": 12,
-        "y": 33,
-        "w": 12,
-        "h": 8
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"cache_read\"}[5m]))",
-          "legendFormat": "cache_read (saved)",
-          "refId": "A",
-          "format": "time_series",
-          "range": true
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${DS_PROMETHEUS}"
-          },
-          "expr": "sum(rate(ai_gateway_request_token_total{token_type=\"prompt\"}[5m]))",
-          "legendFormat": "prompt (billed)",
-          "refId": "B",
-          "format": "time_series",
-          "range": true
-        }
-      ]
+      ],
+      "description": "USD saved via prompt cache hits (`cache_savings_usd` in logs). Higher values mean caching is reducing billable prompt tokens."
     }
   ],
   "links": [
     {
-      "title": "All AI Telemetry Dashboards",
-      "type": "dashboards",
+      "asDropdown": true,
+      "icon": "apps",
+      "includeVars": true,
+      "keepTime": true,
       "tags": [
         "ai-telemetry"
       ],
-      "targetBlank": false,
-      "icon": "external link"
+      "title": "All dashboards",
+      "tooltip": "Jump to any AI Telemetry dashboard",
+      "type": "dashboards",
+      "targetBlank": false
     }
   ]
 }

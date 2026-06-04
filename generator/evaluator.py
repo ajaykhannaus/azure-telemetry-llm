@@ -146,6 +146,11 @@ class EvalResult:
             "faithfulness":  self.faithfulness,
             "relevance":     self.relevance,
             "groundedness":  self.groundedness,
+            # Dashboard-friendly aliases (FR-012 catalogue names).
+            "factual_accuracy_pct":  round(self.faithfulness / 10 * 100, 1),
+            "relevance_score":       self.relevance,
+            "groundedness_score":    self.groundedness,
+            "hallucination_flag":    self.faithfulness < 5,
             "model":         self.model,
             "tokens_used":   self.tokens_used,
             "latency_ms":    self.latency_ms,
