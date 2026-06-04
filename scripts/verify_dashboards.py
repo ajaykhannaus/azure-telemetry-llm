@@ -40,8 +40,13 @@ OPTIONAL_EMPTY_PATTERNS = [
 
 VAR_DEFAULTS = {
     "environment": "dev",
-    "tenant": ".*",
+    "department": ".*",
+    "region": ".*",
+    "provider": ".*",
     "model": ".*",
+    "operation": ".*",
+    "status": ".*",
+    "data_class": ".*",
     "DS_PROMETHEUS": None,  # resolved from datasource list
     "DS_LOKI": None,
     "DS_TEMPO": None,
@@ -240,6 +245,7 @@ def _check_panel(
     strict: bool,
     lookback: str,
     grafana: str,
+    timeout: int = 90,
 ) -> list[PanelResult]:
     ptype = panel.get("type", "")
     title = panel.get("title") or panel_path
@@ -267,7 +273,7 @@ def _check_panel(
             "to": "now",
         }
         try:
-            resp = _req("POST", "/api/ds/query", payload, grafana=grafana)
+            resp = _req("POST", "/api/ds/query", payload, grafana=grafana, timeout=timeout)
             if _frames_have_data(resp):
                 out.append(PanelResult(dashboard, title, ptype, "PASS", expr=expr[:120]))
             elif _is_optional_panel(expr) and not strict:
@@ -292,12 +298,13 @@ def verify_dashboard(
     strict: bool,
     lookback: str,
     grafana: str,
+    timeout: int = 90,
 ) -> list[PanelResult]:
     dash = _req("GET", f"/api/dashboards/uid/{uid}", grafana=grafana)
     panels = dash.get("dashboard", {}).get("panels", [])
     results: list[PanelResult] = []
     for path, panel in _iter_panels(panels):
-        results.extend(_check_panel(name, panel, path, ds_uids, strict, lookback, grafana))
+        results.extend(_check_panel(name, panel, path, ds_uids, strict, lookback, grafana, timeout))
     return results
 
 
@@ -331,6 +338,7 @@ def main() -> int:
     parser.add_argument("--grafana", default=GRAFANA, help="Grafana base URL")
     parser.add_argument("--strict", action="store_true", help="Treat optional/infra empty panels as failures")
     parser.add_argument("--lookback", default="now-6h", help="Query time range start (default: now-6h)")
+    parser.add_argument("--timeout", type=int, default=90, help="Per-panel query timeout seconds")
     parser.add_argument("--uid", action="append", help="Limit to dashboard UID (repeatable)")
     args = parser.parse_args()
 
@@ -355,7 +363,7 @@ def main() -> int:
     for name, uid in dashboards:
         try:
             summary.results.extend(
-                verify_dashboard(name, uid, ds_uids, args.strict, args.lookback, grafana_url)
+                verify_dashboard(name, uid, ds_uids, args.strict, args.lookback, grafana_url, args.timeout)
             )
         except RuntimeError as exc:
             print(f"ERROR loading dashboard {name} ({uid}): {exc}", file=sys.stderr)

@@ -3,41 +3,48 @@
 METRIC_DEFINITIONS: dict[str, str] = {
     # Dashboard 1 — Request & Traffic Metrics
     "Total requests": (
-        "Count of gateway requests in the selected time range. "
-        "Source: Prometheus counter `ai_gateway_request_count_total` (use `increase` over the window)."
+        "Headline request count for the dashboard time range with an inline sparkline trend. "
+        "Source: Prometheus `increase(ai_gateway_request_count_total[$__range])`."
     ),
     "RPM": (
-        "Requests per minute — current traffic rate. "
+        "Continuous requests-per-minute rate over time. "
         "Source: `rate(ai_gateway_request_count_total[1m]) × 60`."
     ),
-    "RPM By Model": (
-        "Request rate per minute split by `model_name`. "
-        "Shows which LLM models are receiving the most traffic."
+    "RPM by Model": (
+        "Stacked area chart of requests/min per `model_name` — each colored band is one model; "
+        "stack height is total RPM."
     ),
-    "Active users/sessions": (
-        "Distinct `user_id` and `session_id` values seen in telemetry logs in the last 5 minutes. "
-        "Source: Loki `telemetry_event` logs (not Prometheus)."
+    "RPM by Model (current)": (
+        "Ranked bar gauge of current requests/min per model (2m rate). "
+        "Companion snapshot to the stacked time series."
     ),
-    "Error Rate By Model": (
-        "Percentage of requests that failed, per model: "
-        "`exception_count / request_count × 100`. "
-        "Spikes often indicate rate limits, timeouts, or model outages for that model."
+    "Active users": (
+        "Distinct `user_id` values in telemetry logs over the last 5 minutes (headline stat, last value). "
+        "Source: Loki `telemetry_event`."
+    ),
+    "Active sessions": (
+        "Distinct `session_id` values in telemetry logs over the last 5 minutes (headline stat, last value). "
+        "Source: Loki `telemetry_event`."
+    ),
+    "Error Rate by Model": (
+        "Failed requests as a percentage per model (`exception_count / request_count × 100`). "
+        "Yellow/red threshold bands highlight SLA breach territory (5% / 10%)."
     ),
     "Model Provider Distribution": (
         "Share of requests by vendor (`model_provider`: anthropic, openai, google, etc.) over the last hour."
     ),
     "Model Distribution (last 1h)": (
-        "Share of requests by `model_name` over the last hour. "
-        "Useful for capacity and cost planning per model."
+        "Ranked horizontal bar gauge of request volume by `model_name` over the last hour — "
+        "model names on the left, values on the bars."
     ),
 
     # Dashboard 2 — Traffic & Request Analytics
     "Requests / min by Model": (
         "Live request rate per model (`rate × 60`). "
-        "Filtered by tenant template variable when set."
+        "Filtered by department template variable when set."
     ),
-    "Requests / min by Tenant": (
-        "Live request rate per `tenant_id` — which clients drive load."
+    "Requests / min by Department": (
+        "Live request rate per `department` — which org teams drive load."
     ),
     "Requests / min by Operation": (
         "Traffic by `operation_name` (e.g. chat_completion, code_generation) — use-case mix."
@@ -51,16 +58,16 @@ METRIC_DEFINITIONS: dict[str, str] = {
     "Error Category Mix": (
         "Failures grouped by `error_category` (throttling, availability, auth, validation)."
     ),
-    "SLA Breach Rate by Tenant": (
-        "Per-tenant error rate (%): requests with `status=error` ÷ all requests. "
-        "High values mean that tenant is missing SLA targets."
+    "SLA Breach Rate by Department": (
+        "Per-department error rate (%): requests with `status=error` ÷ all requests. "
+        "High values mean that department is missing SLA targets."
     ),
     "Total Requests by Routing Reason (last 1h)": (
         "Why the gateway chose a model (`routing_reason` from logs): cost, latency, fallback, policy, etc. "
         "Source: Loki `telemetry_event`."
     ),
     "Live Telemetry Events": (
-        "Streaming audit of recent `telemetry_event` log lines — request id, model, latency, tenant, routing. "
+        "Streaming audit of recent `telemetry_event` log lines — request id, model, latency, department, routing. "
         "Use for live debugging; not aggregated metrics."
     ),
 
@@ -92,13 +99,18 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "Source: Loki `telemetry_event` (synthetic generator computes per-model pricing)."
     ),
     "Cost per user/session": (
-        "Average spend per active user or session in the window — total cost ÷ distinct users/sessions in logs."
+        "Average cost per request over time — `increase(cost) / increase(requests)` from Prometheus "
+        "(Loki per-user ratios exceed local query resolution limits in range mode)."
     ),
     "Daily/monthly spend": (
         "Total USD spent: 24h and 30d `increase` on `ai_gateway_request_cost_USD_total`."
     ),
+    "Cost by department": (
+        "Share of 24h LLM spend by internal department (`department` label). "
+        "Each user belongs to one department within the organization."
+    ),
     "Total cost breakdown": (
-        "Share of 24h spend by `tenant_id` — who is driving FinOps charges."
+        "Share of 24h spend by `model_name` — ranked cost drivers."
     ),
     "Model-wise cost breakdown": (
         "24h spend ranked by `model_name` — which models are most expensive."
@@ -180,17 +192,17 @@ METRIC_DEFINITIONS: dict[str, str] = {
     "Data Classification Distribution": (
         "Mix of `data_classification` labels (phi, pii, confidential, internal, …) in the last hour."
     ),
-    "PII Events by Tenant": (
-        "PII detections per `tenant_id` over time — which clients send sensitive prompts."
+    "PII Events by Department": (
+        "PII detections per `department` over time — which teams send sensitive prompts."
     ),
-    "PHI + PII Volume by Tenant (last 1h)": (
-        "Requests handling phi or pii classification, by tenant, last hour."
+    "PHI + PII Volume by Department (last 1h)": (
+        "Requests handling phi or pii classification, by department, last hour."
     ),
     "Prompt Log Events (PII-scrubbed)": (
         "Audit stream of `prompt_log_event` entries — content is scrubbed; use for security review."
     ),
     "PHI / PII Requests with Trace Links": (
-        "Table of sensitive requests with `request_id`, tenant, model, and `trace_id` for Tempo drill-down."
+        "Table of sensitive requests with `request_id`, department, model, and `trace_id` for Tempo drill-down."
     ),
     "Safety incidents (injection, jailbreak, compliance)": (
         "Log lines where any safety flag fired — combined injection, jailbreak, or compliance events."
@@ -242,37 +254,82 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "Current depth of the runner publish queue (`ai_telemetry_runner_kafka_queue_depth` gauge)."
     ),
     "Publish Error Rate by Reason": (
-        "Failed event publishes per second by `reason` label on `ai_telemetry_runner_publish_errors_total`."
+        "Events published per second (`ai_gateway_request_count_total`) plus publish "
+        "failures by `reason` when present (`ai_telemetry_runner_publish_errors_total`)."
+    ),
+    "Runner Event Publish Rate": (
+        "Events published per second (`ai_gateway_request_count_total`) plus publish "
+        "failures by `reason` when present (`ai_telemetry_runner_publish_errors_total`)."
     ),
     "Batch Duration p99": (
         "99th percentile batch processing duration — tail latency of the telemetry pipeline."
     ),
     "Collector Exporter Queue Size": (
-        "OTel Collector exporter queue depth (Tempo, Prometheus remote write, Loki) — backpressure indicator."
+        "OTel Collector exporter queue depth (Tempo, Loki) plus export throughput "
+        "(spans/s, logs/s) — backpressure and pipeline activity."
     ),
     "Collector Export Failures": (
         "Rate of failed span and log exports from the OTel Collector."
     ),
+    "Collector Export Throughput & Failures": (
+        "Collector export throughput (spans/s, logs/s) and failure rates — "
+        "shows pipeline activity even when failures are zero."
+    ),
 
     # Dashboard 8 — Token & Context Metrics
+    "Output tokens": (
+        "Total completion (output) tokens consumed in the selected time range."
+    ),
+    "Avg tokens / request": (
+        "Average prompt + completion + cache tokens per request."
+    ),
+    "Context fill": (
+        "Average context window utilization % — how full prompts are across models."
+    ),
+    "Errors (5m)": (
+        "Exception count increase in the last 5 minutes."
+    ),
     "Output Token Count": (
-        "Completion (output) token throughput per second, total and by model."
+        "Stacked completion-token throughput by model — each band is one model's share."
+    ),
+    "Output tokens by model (now)": (
+        "Instantaneous completion tokens/s per model — ranked horizontal bar gauge."
+    ),
+    "Token type mix": (
+        "Donut chart of prompt vs completion vs cache_read tokens in the last hour."
     ),
     "Total tokens per request": (
-        "Average prompt + completion + cache tokens per request from Prometheus token counters."
+        "Average total tokens per request over time (single aggregate trend line)."
+    ),
+    "Prompt size by model": (
+        "Average prompt tokens per request ranked by model — horizontal bar gauge."
     ),
     "Context Window Utilization (%)": (
-        "How full the model context window is (`context_window_utilization_pct` in logs). "
-        "High values risk truncation errors."
+        "Dial gauge of average context window fill — high values risk truncation."
+    ),
+    "Context fill by model": (
+        "Context window utilization % ranked by model."
+    ),
+    "Prompt size trend": (
+        "Average prompt (input) tokens per request over time — drives cost and latency."
+    ),
+    "Live token generation rate": (
+        "1-minute stacked completion-token rate by model — near-real-time output."
+    ),
+    "Streaming response latency": (
+        "Average `stream_response_ms` by model for streaming responses."
+    ),
+    "Streaming tokens/sec": (
+        "Observed streaming `tokens_per_second` ranked by model."
+    ),
+    "Avg stream tokens/s": (
+        "Platform-wide average streaming throughput from logs."
+    ),
+    "Errors by type (5m)": (
+        "Bar chart of exceptions in the last 5m broken down by `error_type`."
     ),
     "Prompt size": (
         "Average prompt (input) tokens per request — drives cost and latency."
-    ),
-    "Live token generation rate": (
-        "1-minute rate of completion tokens — near-real-time streaming throughput."
-    ),
-    "Streaming response latency": (
-        "Average `stream_response_ms` for streaming responses — time to finish sending the body."
     ),
     "Tokens/sec": (
         "Observed `tokens_per_second` from streaming requests in logs."
@@ -288,6 +345,10 @@ METRIC_DEFINITIONS: dict[str, str] = {
     "Active users (24h)": (
         "Distinct `user_id` values with at least one `telemetry_event` in 24h."
     ),
+    "Active users by department (24h)": (
+        "Distinct active users per `department` in the last 24h — ranked horizontal bars. "
+        "The department filter is intentionally ignored so all departments are visible."
+    ),
     "Monthly active users (30d)": (
         "Distinct users with a `login_event` in the last 30 days — monthly active user (MAU) proxy."
     ),
@@ -299,31 +360,38 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "Login/session-start events per 5m bucket from `login_event` logs."
     ),
     "Users added (daily active logins)": (
-        "Distinct users who logged in per day — cumulative user growth trend (daily active users)."
+        "Distinct users with a `login_event` in the last 24h."
+    ),
+    "Daily active users (24h)": (
+        "Distinct users with a `login_event` in the last 24h (stat with sparkline)."
     ),
     "Top 10 users — tokens (24h)": (
         "Users ranked by sum of `total_tokens` over 24h — who is consuming the most tokens."
     ),
     "Top 10 users — token rate (5m)": (
-        "Live top 10 users by tokens consumed in each 5m window."
+        "Instant bar chart — top 10 users by tokens consumed in the last 5m."
     ),
-    "Top 10 users — session time (latency sum, 6h)": (
-        "Users ranked by summed `latency_ms` across requests — proxy for time spent in sessions."
+    "Top 10 users — session time (6h)": (
+        "Users ranked by summed `session_time_ms` — wall-clock time spent in sessions "
+        "(reading, typing, waiting), not per-request API latency."
     ),
     "Session usage by user": (
-        "Per `user_id` + `session_id` token totals (top 50) — drill into individual sessions."
+        "Per `user_id` + `department` token totals (top 50, 6h) — avoids high-cardinality session series."
+    ),
+    "Top users by tokens (6h)": (
+        "Table of top 50 users by total tokens in 6h, with department."
     ),
     "Session time by user (top 10, 5m)": (
-        "Top 10 users by summed request latency per 5m — who is actively spending time right now."
+        "Instant bar chart — top 10 users by summed `session_time_ms` in the last 5m."
     ),
     "Token volume — spike detector (5m buckets)": (
-        "Total token volume per 5m vs 1h rolling average — visual spike detection for LLM usage."
+        "Total token volume per 5m vs 1h average per 5m bucket — visual spike detection for LLM usage."
     ),
-    "Top 10 users — spike ratio (15m vs 1h baseline)": (
-        "Per-user ratio: tokens in last 15m ÷ (tokens in last 1h × 0.25). "
-        "Values above ~1.5 mean usage in the last 15m exceeds a fair share of the hourly baseline."
+    "Top 10 users — spike ratio (15m vs prev 15m)": (
+        "Per-user ratio: tokens in last 15m ÷ tokens in the previous 15m (30m window minus last 15m). "
+        "Values above ~1.5 mean usage in the last 15m exceeds the prior 15m baseline."
     ),
     "Recent login events": (
-        "Live stream of `login_event` logs with user, session, tenant, and auth method."
+        "Live stream of `login_event` logs with user, session, department, and auth method."
     ),
 }

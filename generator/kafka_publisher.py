@@ -20,8 +20,10 @@ def _start_payload(event_id: str, event: dict[str, Any]) -> dict[str, Any]:
         "session_id": event.get("session_id"),
         "turn_number": event.get("turn_number"),
         "user_email": event.get("user_email"),
+        "organization": event.get("organization"),
+        "department": event.get("department"),
         "client_name": event.get("client_name"),
-        "tenant_id": event.get("client_name"),
+        "tenant_id": event.get("department"),
         "project_id": event.get("project_id"),
         "auth_method": event.get("auth_method"),
         "operation_name": event.get("operation_name"),
@@ -40,8 +42,10 @@ def _end_payload(event_id: str, event: dict[str, Any]) -> dict[str, Any]:
         "turn_number": event.get("turn_number"),
         "user_id": event.get("user_id"),
         "user_email": event.get("user_email"),
+        "organization": event.get("organization"),
+        "department": event.get("department"),
         "client_name": event.get("client_name"),
-        "tenant_id": event.get("client_name"),
+        "tenant_id": event.get("department"),
         "project_id": event.get("project_id"),
         "auth_method": event.get("auth_method"),
         "data_classification": event.get("data_classification"),
@@ -104,7 +108,7 @@ class KafkaPublisher:
             payload,
             event_id=event_id,
             occurred_at=str(event.get("timestamp_start", "")),
-            tenant_id=event.get("client_name"),
+            tenant_id=event.get("department"),
             correlation_id=event.get("request_id"),
         )
         return self._publisher._publish_envelope(envelope, headers=headers)
@@ -121,7 +125,7 @@ class KafkaPublisher:
             payload,
             event_id=event_id,
             occurred_at=str(event.get("timestamp_start", "")),
-            tenant_id=event.get("client_name"),
+            tenant_id=event.get("department"),
             correlation_id=event.get("request_id"),
         )
         return self._publisher._publish_envelope(envelope, headers=headers)

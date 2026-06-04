@@ -153,11 +153,16 @@ def _patch_queries(obj: Any) -> None:
 def _patch_datasource_refs(
     obj: Any, prom_uid: str, loki_uid: str, tempo_uid: str,
 ) -> None:
-    """Resolve ${DS_*} template placeholders to concrete datasource UIDs."""
+    """Resolve ${DS_*} placeholders and baked provisioning UIDs to concrete datasource UIDs."""
     mapping = {
         "${DS_PROMETHEUS}": (prom_uid, "prometheus"),
         "${DS_LOKI}": (loki_uid, "loki"),
         "${DS_TEMPO}": (tempo_uid, "tempo"),
+        # dashboards/generate_dashboards.py bakes these for Docker provisioning;
+        # Homebrew Grafana assigns its own UIDs unless recreated.
+        "prometheus-ds": (prom_uid, "prometheus"),
+        "loki-ds": (loki_uid, "loki"),
+        "tempo-ds": (tempo_uid, "tempo"),
     }
     if isinstance(obj, dict):
         ds = obj.get("datasource")
@@ -276,9 +281,21 @@ def _patch_modern_dashboard(
             var["current"] = {"selected": True, "text": text, "value": uid}
             var["hide"] = 2  # hide — panels use pinned datasource UIDs locally
         elif name == "environment":
-            var["current"] = {"selected": True, "text": "dev", "value": "dev"}
-        elif name in ("tenant", "model") and var.get("includeAll"):
+            env = os.getenv("ENVIRONMENT", "dev")
+            var["current"] = {"selected": True, "text": env, "value": env}
+        elif var.get("name") in (
+            "model", "department", "region", "provider", "operation", "status", "data_class",
+        ) and var.get("includeAll"):
             var["current"] = {"selected": True, "text": "All", "value": ".*"}
+        # Grafana 10+ Prometheus variables expect a structured query object.
+        if var.get("type") == "query" and isinstance(var.get("query"), str):
+            q = var["query"]
+            var["definition"] = q
+            var["query"] = {
+                "qryType": 1,
+                "query": q,
+                "refId": "PrometheusVariableQueryEditor-VariableQuery",
+            }
 
     for ann in dash.get("annotations", {}).get("list", []):
         if ann.get("type") == "alert":

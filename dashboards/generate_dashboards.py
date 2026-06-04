@@ -71,33 +71,187 @@ def _query_var(name: str, label: str, datasource: dict, query: str,
         "sort": 1,
     }
 
-COMMON_VARS: list[dict] = [
-    _query_var(
-        "tenant", "Tenant",
-        DS_PROMETHEUS,
-        'label_values(ai_gateway_request_count_total, tenant_id)',
-        multi=True, include_all=True,
+def _custom_var(name: str, label: str, values: str,
+                multi: bool = True, include_all: bool = True) -> dict:
+    return {
+        "type": "custom", "name": name, "label": label,
+        "query": values,
+        "multi": multi, "includeAll": include_all,
+        "allValue": ".*", "hide": 0,
+        "current": {"selected": True, "text": "All", "value": ".*"},
+    }
+
+
+# ---------------------------------------------------------------------------
+# Per-dashboard filter sets — each dashboard exposes only relevant variables.
+# ---------------------------------------------------------------------------
+
+_PROM_LABEL_MAP: dict[str, str] = {
+    "environment": 'environment=~"$environment"',
+    "department":  'department=~"$department"',
+    "region":      'region=~"$region"',
+    "provider":    'model_provider=~"$provider"',
+    "model":       'model_name=~"$model"',
+    "operation":   'operation_name=~"$operation"',
+    "status":      'status=~"$status"',
+    "data_class":  'data_classification=~"$data_class"',
+}
+
+_LOKI_LABEL_MAP: dict[str, str] = {
+    "department":  'department=~"$department"',
+    "region":      'region=~"$region"',
+    "provider":    'model_provider=~"$provider"',
+    "model":       'model_name=~"$model"',
+    "operation":   'operation_name=~"$operation"',
+    "status":      'status=~"$status"',
+    "data_class":  'data_classification=~"$data_class"',
+}
+
+_VAR_BUILDERS: dict[str, callable] = {
+    "department": lambda: _query_var(
+        "department", "Department", DS_PROMETHEUS,
+        "label_values(ai_gateway_request_count_total, department)",
         current={"selected": True, "text": "All", "value": ".*"},
     ),
-    _query_var(
-        "model", "Model",
-        DS_PROMETHEUS,
-        'label_values(ai_gateway_request_count_total, model_name)',
-        multi=True, include_all=True,
+    "region": lambda: _query_var(
+        "region", "Region", DS_PROMETHEUS,
+        "label_values(ai_gateway_request_count_total, region)",
         current={"selected": True, "text": "All", "value": ".*"},
     ),
-    _query_var(
-        "environment", "Environment",
-        DS_PROMETHEUS,
-        'label_values(ai_gateway_request_count_total, environment)',
+    "provider": lambda: _query_var(
+        "provider", "Provider", DS_PROMETHEUS,
+        "label_values(ai_gateway_request_count_total, model_provider)",
+        current={"selected": True, "text": "All", "value": ".*"},
+    ),
+    "model": lambda: _query_var(
+        "model", "Model", DS_PROMETHEUS,
+        "label_values(ai_gateway_request_count_total, model_name)",
+        current={"selected": True, "text": "All", "value": ".*"},
+    ),
+    "operation": lambda: _query_var(
+        "operation", "Operation", DS_PROMETHEUS,
+        "label_values(ai_gateway_request_count_total, operation_name)",
+        current={"selected": True, "text": "All", "value": ".*"},
+    ),
+    "status": lambda: _query_var(
+        "status", "Status", DS_PROMETHEUS,
+        "label_values(ai_gateway_request_count_total, status)",
+        current={"selected": True, "text": "All", "value": ".*"},
+    ),
+    "data_class": lambda: _custom_var(
+        "data_class", "Data class", "phi,pii,confidential,internal",
+    ),
+    "environment": lambda: _query_var(
+        "environment", "Environment", DS_PROMETHEUS,
+        "label_values(ai_gateway_request_count_total, environment)",
         multi=False, include_all=False,
         current={"selected": True, "text": "dev", "value": "dev"},
     ),
-]
+}
 
-# ---------------------------------------------------------------------------
-# Panel builders
-# ---------------------------------------------------------------------------
+
+class FilterSet:
+    """Prometheus / Loki selector strings scoped to one dashboard's variables."""
+
+    __slots__ = ("keys",)
+
+    def __init__(self, *keys: str) -> None:
+        unknown = set(keys) - _VAR_BUILDERS.keys()
+        if unknown:
+            raise ValueError(f"unknown filter keys: {unknown}")
+        self.keys = keys
+
+    def variables(self) -> list[dict]:
+        return [_VAR_BUILDERS[k]() for k in self.keys]
+
+    @property
+    def prom_labels(self) -> str:
+        return ",".join(_PROM_LABEL_MAP[k] for k in self.keys if k in _PROM_LABEL_MAP)
+
+    @property
+    def prom(self) -> str:
+        labels = self.prom_labels
+        return "{" + labels + "}" if labels else ""
+
+    @property
+    def prom_error(self) -> str:
+        parts = [_PROM_LABEL_MAP[k] for k in self.keys if k in _PROM_LABEL_MAP and k != "status"]
+        parts.append('status="error"')
+        return "{" + ",".join(parts) + "}"
+
+    @property
+    def loki(self) -> str:
+        parts = [_LOKI_LABEL_MAP[k] for k in self.keys if k in _LOKI_LABEL_MAP]
+        return ("| " + " | ".join(parts)) if parts else ""
+
+    def loki_except(self, *exclude: str) -> str:
+        """Loki pipeline filters omitting keys (e.g. skip department on a by-department panel)."""
+        skip = set(exclude)
+        parts = [_LOKI_LABEL_MAP[k] for k in self.keys if k in _LOKI_LABEL_MAP and k not in skip]
+        return ("| " + " | ".join(parts)) if parts else ""
+
+    @property
+    def login_loki(self) -> str:
+        """Login events — department + region only (when present on dashboard)."""
+        parts = [
+            _LOKI_LABEL_MAP[k]
+            for k in self.keys
+            if k in ("department", "region")
+        ]
+        return ("| " + " | ".join(parts)) if parts else ""
+
+
+def _token_selector(token_type: str, f: FilterSet) -> str:
+    labels = f.prom_labels
+    if labels:
+        return "{" + f'token_type="{token_type}",' + labels + "}"
+    return "{" + f'token_type="{token_type}"' + "}"
+
+
+# Dashboard-specific filter presets (order = top-bar left → right).
+FILTERS_D1 = ("department", "region", "provider", "model", "environment")
+FILTERS_D2 = ("department", "region", "provider", "model", "operation", "status", "environment")
+FILTERS_D3 = ("department", "region", "provider", "model", "operation", "environment")
+FILTERS_D4 = ("department", "region", "provider", "model", "environment")
+FILTERS_D5 = ("department", "provider", "model", "operation", "environment")
+FILTERS_D6 = ("department", "data_class", "provider", "model", "environment")
+FILTERS_D7 = ("environment", "department", "model")
+FILTERS_D8 = ("department", "region", "provider", "model", "operation", "environment")
+FILTERS_D9 = ("department", "region", "provider", "model", "environment")
+
+# Map dashboard UID → filter keys (used for nav links that reset template variables).
+FILTERS_BY_UID: dict[str, tuple[str, ...]] = {
+    "ai-telemetry-executive": FILTERS_D1,
+    "ai-telemetry-traffic": FILTERS_D2,
+    "ai-telemetry-latency": FILTERS_D3,
+    "ai-telemetry-cost": FILTERS_D4,
+    "ai-telemetry-quality": FILTERS_D5,
+    "ai-telemetry-safety": FILTERS_D6,
+    "ai-telemetry-infra": FILTERS_D7,
+    "ai-telemetry-tokens": FILTERS_D8,
+    "ai-telemetry-users": FILTERS_D9,
+}
+
+_ALL_TEMPLATE_VARS = (
+    "department", "region", "provider", "model", "operation", "status", "data_class", "environment",
+)
+
+
+def _nav_var_reset_query() -> str:
+    """Reset every template variable in the URL (Grafana SPA keeps stale var-* params otherwise)."""
+    parts: list[str] = []
+    for key in _ALL_TEMPLATE_VARS:
+        if key == "environment":
+            parts.append("var-environment=dev")
+        else:
+            parts.append(f"var-{key}=All")
+    return "&".join(parts)
+
+
+def _dashboard_href(uid: str) -> str:
+    """Dashboard link that clears inherited template variables from other dashboards."""
+    return f"/d/{uid}?{_nav_var_reset_query()}"
+
 
 _id_counter = 0
 
@@ -158,8 +312,14 @@ def stat_panel(
         },
         "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "colorMode": color_mode, "graphMode": "area",
-            "justifyMode": "center", "textMode": "auto",
+            "colorMode": color_mode,
+            "graphMode": "area",
+            "justifyMode": "center",
+            "textMode": "auto",
+            "wideLayout": True,
+            "showPercentChange": False,
+            "percentChangeColorMode": "standard",
+            "text": {},
         },
         "gridPos": grid or _grid(0, 0, 4, 3),
         "targets": [_loki_stat_target(expr, ref="A") if ds == DS_LOKI
@@ -179,19 +339,54 @@ def timeseries_panel(
     axis_soft_max: float | None = None,
     decimals: int | None = None,
     description: str | None = None,
+    thresholds: list[dict] | None = None,
+    thresholds_style: str | None = None,
+    legend_calcs: list[str] | None = None,
+    legend_display_mode: str = "list",
 ) -> dict:
     ds = datasource or DS_PROMETHEUS
+    # Stacked area looks best fully filled; line charts get a soft gradient wash.
+    if fill_opacity == 5:
+        fill_opacity = 18 if stacking == "none" else 35
     custom: dict[str, Any] = {
-        "lineWidth": 1, "fillOpacity": fill_opacity,
-        "gradientMode": "none",
-        "stacking": {"mode": stacking},
+        "lineWidth": 2,
+        "fillOpacity": fill_opacity,
+        "gradientMode": "opacity",
+        "lineInterpolation": "smooth",
+        "spanNulls": True,
+        "stacking": {"mode": stacking, "group": "A"},
         "showPoints": "never",
+        "pointSize": 5,
+        "axisColorMode": "text",
+        "axisBorderShow": False,
+        "axisGridShow": True,
+        "lineStyle": {"fill": "solid"},
+        "scaleDistribution": {"type": "linear"},
+        "hideFrom": {"legend": False, "tooltip": False, "viz": False},
     }
     if axis_soft_max is not None:
         custom["axisSoftMax"] = axis_soft_max
+    if thresholds_style:
+        custom["thresholdsStyle"] = {"mode": thresholds_style}
     defaults: dict[str, Any] = {"unit": unit, "custom": custom}
     if decimals is not None:
         defaults["decimals"] = decimals
+    if thresholds:
+        defaults["color"] = {"mode": "thresholds"}
+        defaults["thresholds"] = {"mode": "absolute", "steps": thresholds}
+    else:
+        # Distinct, high-contrast series colours straight out of the box.
+        defaults["color"] = {"mode": "palette-classic"}
+    legend: dict[str, Any] = {
+        "displayMode": legend_display_mode,
+        "placement": legend_placement,
+        "showLegend": True,
+    }
+    # Tables get rich summary stats so leadership can read values without hovering.
+    if legend_calcs:
+        legend["calcs"] = legend_calcs
+    elif legend_display_mode == "table":
+        legend["calcs"] = ["lastNotNull", "mean", "max"]
     return _with_description({
         "id": _next_id(), "type": "timeseries", "title": title,
         "datasource": ds,
@@ -200,7 +395,7 @@ def timeseries_panel(
             "overrides": [],
         },
         "options": {
-            "legend": {"displayMode": "list", "placement": legend_placement, "showLegend": True},
+            "legend": legend,
             "tooltip": {"mode": "multi", "sort": "desc"},
         },
         "gridPos": grid or _grid(0, 0, 12, 8),
@@ -267,8 +462,10 @@ def gauge_panel(
     min_val: float = 0, max_val: float = 100,
     thresholds: list[dict] | None = None,
     grid: dict | None = None,
+    datasource: dict | None = None,
     description: str | None = None,
 ) -> dict:
+    ds = datasource or DS_PROMETHEUS
     th = thresholds or [
         {"color": "red",    "value": None},
         {"color": "yellow", "value": 25},
@@ -276,7 +473,7 @@ def gauge_panel(
     ]
     return _with_description({
         "id": _next_id(), "type": "gauge", "title": title,
-        "datasource": DS_PROMETHEUS,
+        "datasource": ds,
         "fieldConfig": {
             "defaults": {
                 "unit": unit, "min": min_val, "max": max_val,
@@ -285,9 +482,16 @@ def gauge_panel(
             },
             "overrides": [],
         },
-        "options": {"reduceOptions": {"calcs": ["lastNotNull"]}, "showThresholdLabels": True},
+        "options": {
+            "reduceOptions": {"calcs": ["lastNotNull"]},
+            "showThresholdLabels": False,
+            "showThresholdMarkers": True,
+            "orientation": "auto",
+            "sizing": "auto",
+        },
         "gridPos": grid or _grid(0, 0, 6, 6),
-        "targets": [_prom_stat_target(expr)],
+        "targets": [_loki_stat_target(expr) if ds == DS_LOKI
+                    else _prom_stat_target(expr)],
     }, title, description)
 
 
@@ -301,14 +505,32 @@ def barchart_panel(
     return _with_description({
         "id": _next_id(), "type": "barchart", "title": title,
         "datasource": ds,
-        "fieldConfig": {"defaults": {"unit": unit}, "overrides": []},
+        "fieldConfig": {
+            "defaults": {
+                "unit": unit,
+                "color": {"mode": "palette-classic"},
+                "custom": {
+                    "fillOpacity": 80,
+                    "gradientMode": "opacity",
+                    "lineWidth": 1,
+                    "axisColorMode": "text",
+                    "axisBorderShow": False,
+                    "hideFrom": {"legend": False, "tooltip": False, "viz": False},
+                },
+            },
+            "overrides": [],
+        },
         "options": {
             "orientation": orientation,
             "xTickLabelRotation": -45,
-            "barRadius": 0.03,
+            "xTickLabelSpacing": 100,
+            "barRadius": 0.15,
             "groupWidth": 0.7,
-            "barWidth": 0.97,
+            "barWidth": 0.9,
+            "fullHighlight": False,
+            "showValue": "auto",
             "stacking": "none",
+            "tooltip": {"mode": "single", "sort": "desc"},
             "legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
         },
         "gridPos": grid or _grid(0, 0, 12, 8),
@@ -319,18 +541,28 @@ def barchart_panel(
 def piechart_panel(
     title: str, targets: list[dict],
     grid: dict | None = None, datasource: dict | None = None,
+    pie_type: str = "pie",
     description: str | None = None,
 ) -> dict:
     ds = datasource or DS_PROMETHEUS
     return _with_description({
         "id": _next_id(), "type": "piechart", "title": title,
         "datasource": ds,
-        "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+        "fieldConfig": {
+            "defaults": {
+                "unit": "short",
+                "color": {"mode": "palette-classic"},
+                "custom": {"hideFrom": {"legend": False, "tooltip": False, "viz": False}},
+            },
+            "overrides": [],
+        },
         "options": {
-            "pieType": "pie",
+            "pieType": pie_type,
+            "displayLabels": [],
+            "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
             "legend": {"displayMode": "table", "placement": "right", "showLegend": True,
-                       "values": ["value", "percent"]},
-            "tooltip": {"mode": "single"},
+                       "values": ["value"]},
+            "tooltip": {"mode": "single", "sort": "desc"},
         },
         "gridPos": grid or _grid(0, 0, 8, 8),
         "targets": targets,
@@ -342,6 +574,8 @@ def bargauge_panel(
     grid: dict | None = None,
     thresholds: list[dict] | None = None,
     datasource: dict | None = None,
+    legend_format: str = "{{model_name}}",
+    color_mode: str = "thresholds",
     description: str | None = None,
 ) -> dict:
     ds = datasource or DS_PROMETHEUS
@@ -350,26 +584,33 @@ def bargauge_panel(
         {"color": "yellow", "value": 75},
         {"color": "red",    "value": 90},
     ]
+    defaults: dict[str, Any] = {"unit": unit}
+    if color_mode == "palette":
+        defaults["color"] = {"mode": "palette-classic"}
+    else:
+        defaults["color"] = {"mode": "thresholds"}
+        defaults["thresholds"] = {"mode": "absolute", "steps": th}
     return _with_description({
         "id": _next_id(), "type": "bargauge", "title": title,
         "datasource": ds,
-        "fieldConfig": {
-            "defaults": {
-                "unit": unit,
-                "color": {"mode": "thresholds"},
-                "thresholds": {"mode": "absolute", "steps": th},
-            },
-            "overrides": [],
-        },
+        "fieldConfig": {"defaults": defaults, "overrides": []},
         "options": {
             "orientation": "horizontal",
             "reduceOptions": {"calcs": ["lastNotNull"]},
-            "displayMode": "lcd",
+            "displayMode": "gradient",
+            "valueMode": "color",
             "showUnfilled": True,
+            "namePlacement": "left",
+            "minVizWidth": 8,
+            "minVizHeight": 16,
         },
         "gridPos": grid or _grid(0, 0, 12, 6),
-        "targets": [{"datasource": ds, "expr": expr, "instant": True,
-                     "legendFormat": "{{tenant_id}}", "refId": "A"}],
+        "targets": (
+            [_loki_instant_target(expr, legend_format)]
+            if ds == DS_LOKI
+            else [{"datasource": ds, "expr": expr, "instant": True,
+                     "legendFormat": legend_format, "refId": "A"}]
+        ),
     }, title, description)
 
 
@@ -502,6 +743,7 @@ def text_panel(
 # ---------------------------------------------------------------------------
 
 NAV_BAR_HEIGHT = 3
+HERO_HEIGHT = 4
 
 DASHBOARDS_NAV: list[tuple[str, str, str]] = [
     ("1", "Request & Traffic", "ai-telemetry-executive"),
@@ -542,7 +784,7 @@ def nav_bar_panel(current_uid: str) -> dict:
                 "background:#eff6ff;color:#1e3a8a;border:1px solid #93c5fd;"
             )
         buttons.append(
-            f'<a href="/d/{uid}" style="display:inline-flex;align-items:center;'
+            f'<a href="{_dashboard_href(uid)}" style="display:inline-flex;align-items:center;'
             f"padding:9px 14px;margin:0;border-radius:8px;font-size:13px;"
             f"font-weight:600;text-decoration:none;white-space:nowrap;"
             f'letter-spacing:.01em;{style}">{num}. {label}</a>'
@@ -562,25 +804,74 @@ def nav_bar_panel(current_uid: str) -> dict:
     )
 
 
-def _prepend_nav(uid: str, panels: list[dict]) -> list[dict]:
-    return [nav_bar_panel(uid)] + _shift_panels_y(panels, NAV_BAR_HEIGHT)
+def hero_panel(uid: str, title: str, subtitle: str) -> dict:
+    """Gradient title banner — gives every dashboard a consistent leadership header."""
+    # Strip the leading "N. " ordinal for a cleaner hero headline.
+    display = title.split(". ", 1)[-1] if ". " in title[:4] else title
+    num = title.split(".", 1)[0].strip() if title[:1].isdigit() else ""
+    badge = (
+        f'<span style="display:inline-flex;align-items:center;justify-content:center;'
+        f'width:34px;height:34px;border-radius:9px;background:rgba(255,255,255,.18);'
+        f'border:1px solid rgba(255,255,255,.35);font-size:16px;font-weight:800;'
+        f'margin-right:14px;flex:0 0 auto;">{num}</span>'
+        if num else ""
+    )
+    content = (
+        '<div style="display:flex;align-items:center;width:100%;height:100%;'
+        'padding:14px 20px;border-radius:12px;color:#fff;'
+        "background:linear-gradient(100deg,#1e3a8a 0%,#1d4ed8 45%,#0ea5e9 100%);"
+        'box-shadow:0 2px 10px rgba(29,78,216,.30);">'
+        + badge
+        + '<div style="display:flex;flex-direction:column;line-height:1.25;">'
+        f'<span style="font-size:19px;font-weight:800;letter-spacing:.01em;">{display}</span>'
+        f'<span style="font-size:12.5px;font-weight:500;opacity:.85;margin-top:2px;">{subtitle}</span>'
+        "</div>"
+        '<span style="margin-left:auto;font-size:11px;font-weight:600;opacity:.75;'
+        'letter-spacing:.08em;text-transform:uppercase;">AI Gateway Telemetry</span>'
+        "</div>"
+    )
+    return text_panel(
+        "", content, grid=_grid(0, 0, 24, HERO_HEIGHT),
+        mode="html", transparent=True,
+    )
 
 
-def _dashboard_nav_links() -> list[dict]:
-    """Single header dropdown — avoids one link per dashboard wrapping in the toolbar."""
-    return [
+def _prepend_nav(uid: str, panels: list[dict],
+                 title: str = "", subtitle: str = "") -> list[dict]:
+    hero = hero_panel(uid, title, subtitle)
+    nav = nav_bar_panel(uid)
+    nav["gridPos"]["y"] = HERO_HEIGHT  # sit the nav row directly under the hero
+    return [hero, nav] + _shift_panels_y(panels, NAV_BAR_HEIGHT + HERO_HEIGHT)
+
+
+def _dashboard_nav_links(current_uid: str) -> list[dict]:
+    """Header links — do not carry template variables between dashboards."""
+    links: list[dict] = [
         {
-            "asDropdown": True,
-            "icon": "apps",
-            "includeVars": True,
-            "keepTime": True,
-            "tags": ["ai-telemetry"],
             "title": "All dashboards",
             "tooltip": "Jump to any AI Telemetry dashboard",
             "type": "dashboards",
+            "icon": "apps",
+            "tags": ["ai-telemetry"],
+            "asDropdown": True,
+            "includeVars": False,
+            "keepTime": True,
             "targetBlank": False,
         },
     ]
+    for num, label, uid in DASHBOARDS_NAV:
+        if uid == current_uid:
+            continue
+        links.append({
+            "title": f"{num}. {label}",
+            "url": _dashboard_href(uid),
+            "type": "link",
+            "icon": "dashboard",
+            "includeVars": False,
+            "keepTime": True,
+            "targetBlank": False,
+        })
+    return links
 
 
 # ---------------------------------------------------------------------------
@@ -590,11 +881,12 @@ def _dashboard_nav_links() -> list[dict]:
 def dashboard(
     uid: str, title: str, description: str, tags: list[str],
     panels: list[dict],
+    variables: list[dict],
     refresh: str = "30s",
 ) -> dict:
     global _id_counter
     _id_counter = 0   # reset per dashboard so IDs start at 1
-    panels = _prepend_nav(uid, panels)
+    panels = _prepend_nav(uid, panels, title=title, subtitle=description)
     for i, p in enumerate(panels, 1):
         p["id"] = i
     return {
@@ -603,18 +895,24 @@ def dashboard(
         "description": description,
         "tags": tags,
         "schemaVersion": 39,
-        "version": 1,
+        "version": 2,
         "style": "light",
         "refresh": refresh,
         "time": {"from": "now-6h", "to": "now"},
-        "timepicker": {},
+        "timepicker": {
+            "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h"],
+        },
         "timezone": "browser",
         "editable": True,
+        "fiscalYearStartMonth": 0,
+        "liveNow": False,
+        "weekStart": "",
+        # Shared crosshair across panels — synchronised hover for storytelling.
         "graphTooltip": 1,
-        "templating": {"list": COMMON_VARS},
+        "templating": {"list": variables},
         "annotations": {"list": []},
         "panels": panels,
-        "links": _dashboard_nav_links(),
+        "links": _dashboard_nav_links(uid),
     }
 
 
@@ -632,75 +930,132 @@ def _save(name: str, d: dict) -> None:
 def build_d1() -> dict:
     global _id_counter; _id_counter = 0
 
-    _f = '{environment=~"$environment",tenant_id=~"$tenant",model_name=~"$model"}'
-    _tele = (
-        f'{_LOKI_STREAM} event_type="telemetry_event" '
-        '| tenant_id=~"$tenant" | model_name=~"$model"'
-    )
+    F = FilterSet(*FILTERS_D1)
+    _f = F.prom
+    _tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}'
 
     panels = [
+        # Row 1 — headline stats (sparkline + active user/session counts)
         stat_panel(
             "Total requests",
-            f'sum(increase(ai_gateway_request_count_total{_f}[6h]))',
+            f'sum(increase(ai_gateway_request_count_total{_f}[$__range]))',
             unit="short", decimals=0,
             thresholds=[{"color": "blue", "value": None}],
-            grid=_grid(0, 0, 8, 4),
+            color_mode="value",
+            grid=_grid(0, 0, 8, 5),
+            description=(
+                "Single headline count for the selected time range with a sparkline trend. "
+                "Source: Prometheus `increase(ai_gateway_request_count_total[$__range])`."
+            ),
         ),
         stat_panel(
-            "RPM",
-            f'sum(rate(ai_gateway_request_count_total{_f}[1m])) * 60',
-            unit="r/min", decimals=1,
+            "Active users",
+            f'count(count by (user_id) (count_over_time({_tele} | user_id != "" [5m])))',
+            unit="short", decimals=0,
             thresholds=[{"color": "blue", "value": None}],
-            grid=_grid(8, 0, 16, 4),
+            color_mode="value",
+            grid=_grid(8, 0, 8, 5),
+            datasource=DS_LOKI,
+            description=(
+                "Distinct active users in the last 5 minutes (last value). "
+                "Source: Loki `telemetry_event` logs."
+            ),
+        ),
+        stat_panel(
+            "Active sessions",
+            f'count(count by (session_id) (count_over_time({_tele} | session_id != "" [5m])))',
+            unit="short", decimals=0,
+            thresholds=[{"color": "blue", "value": None}],
+            color_mode="value",
+            grid=_grid(16, 0, 8, 5),
+            datasource=DS_LOKI,
+            description=(
+                "Distinct active sessions in the last 5 minutes (last value). "
+                "Source: Loki `telemetry_event` logs."
+            ),
         ),
 
+        # Row 2 — aggregate traffic rate
         timeseries_panel(
-            "RPM By Model",
+            "RPM",
+            [_prom_target(
+                f'sum(rate(ai_gateway_request_count_total{_f}[1m])) * 60',
+                "Requests / min", "A",
+            )],
+            unit="r/min", decimals=1,
+            fill_opacity=20,
+            grid=_grid(0, 5, 24, 7),
+            description=(
+                "Continuous requests-per-minute rate over time. "
+                "Source: `rate(ai_gateway_request_count_total[1m]) × 60`."
+            ),
+        ),
+
+        # Row 3 — per-model traffic (stacked area + current snapshot)
+        timeseries_panel(
+            "RPM by Model",
             [_prom_target(
                 f'sum by (model_name) (rate(ai_gateway_request_count_total{_f}[2m])) * 60',
                 "{{model_name}}", "A",
             )],
-            unit="r/min", grid=_grid(0, 4, 24, 8),
+            unit="r/min", decimals=1,
+            stacking="normal",
+            fill_opacity=45,
+            legend_display_mode="table",
+            legend_calcs=["lastNotNull", "mean"],
+            grid=_grid(0, 12, 16, 8),
+            description=(
+                "Stacked area chart — each band is one model's share of total RPM over time. "
+                "Easier to read than overlapping lines."
+            ),
+        ),
+        bargauge_panel(
+            "RPM by Model (current)",
+            f'sort_desc(sum by (model_name) (rate(ai_gateway_request_count_total{_f}[2m])) * 60)',
+            unit="r/min",
+            legend_format="{{model_name}}",
+            color_mode="palette",
+            grid=_grid(16, 12, 8, 8),
+            description="Instantaneous requests/min per model — ranked bar gauge snapshot.",
         ),
 
+        # Row 4 — error rate with SLA threshold band
         timeseries_panel(
-            "Active users/sessions",
-            [
-                _loki_target(
-                    f'count(sum by (user_id) (count_over_time({_tele} [5m])))',
-                    "Active users", "A",
-                ),
-                _loki_target(
-                    f'count(sum by (session_id) (count_over_time({_tele} [5m])))',
-                    "Active sessions", "B",
-                ),
-            ],
-            unit="short", grid=_grid(0, 12, 12, 8),
-            datasource=DS_LOKI,
-        ),
-        timeseries_panel(
-            "Error Rate By Model",
+            "Error Rate by Model",
             [_prom_target(
                 f'sum by (model_name) (rate(ai_gateway_exception_count_total{_f}[5m])) '
                 f'/ clamp_min(sum by (model_name) (rate(ai_gateway_request_count_total{_f}[5m])), 1e-9) * 100',
                 "{{model_name}}", "A",
             )],
-            unit="percent", grid=_grid(12, 12, 12, 8),
+            unit="percent", decimals=1,
+            axis_soft_max=100,
+            legend_display_mode="table",
+            legend_calcs=["lastNotNull"],
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 10},
+            ],
+            thresholds_style="line+area",
+            grid=_grid(0, 20, 24, 8),
         ),
 
+        # Row 5 — model mix
         piechart_panel(
             "Model Provider Distribution",
             [{"datasource": DS_PROMETHEUS,
               "expr": f'sort_desc(sum by (model_provider) (increase(ai_gateway_request_count_total{_f}[1h])))',
               "legendFormat": "{{model_provider}}", "refId": "A", "instant": True}],
-            grid=_grid(0, 20, 12, 8),
+            pie_type="donut",
+            grid=_grid(0, 28, 12, 8),
         ),
-        piechart_panel(
+        bargauge_panel(
             "Model Distribution (last 1h)",
-            [{"datasource": DS_PROMETHEUS,
-              "expr": f'sort_desc(sum by (model_name) (increase(ai_gateway_request_count_total{_f}[1h])))',
-              "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
-            grid=_grid(12, 20, 12, 8),
+            f'sort_desc(sum by (model_name) (increase(ai_gateway_request_count_total{_f}[1h])))',
+            unit="short",
+            legend_format="{{model_name}}",
+            color_mode="palette",
+            grid=_grid(12, 28, 12, 8),
         ),
     ]
 
@@ -710,6 +1065,7 @@ def build_d1() -> dict:
         description="Request volume, RPM, active users/sessions, model mix, and error rates.",
         tags=["ai-telemetry", "traffic", "requests"],
         panels=panels,
+        variables=F.variables(),
     )
 
 
@@ -720,60 +1076,70 @@ def build_d1() -> dict:
 def build_d2() -> dict:
     global _id_counter; _id_counter = 0
 
+    F = FilterSet(*FILTERS_D2)
+    _f = F.prom
+
     panels = [
         row_panel("Traffic Volume", y=0),
         timeseries_panel(
             "Requests / min by Model",
-            [_prom_target('sum by (model_name) (rate(ai_gateway_request_count_total{tenant_id=~"$tenant"}[2m])) * 60', "{{model_name}}")],
+            [_prom_target(f'sum by (model_name) (rate(ai_gateway_request_count_total{_f}[2m])) * 60', "{{model_name}}")],
             unit="r/min", grid=_grid(0, 1, 12, 8),
         ),
         timeseries_panel(
-            "Requests / min by Tenant",
-            [_prom_target('sum by (tenant_id) (rate(ai_gateway_request_count_total[2m])) * 60', "{{tenant_id}}")],
+            "Requests / min by Department",
+            [_prom_target(f'sum by (department) (rate(ai_gateway_request_count_total{_f}[2m])) * 60', "{{department}}")],
             unit="r/min", grid=_grid(12, 1, 12, 8),
         ),
         timeseries_panel(
             "Requests / min by Operation",
-            [_prom_target('sum by (operation_name) (rate(ai_gateway_request_count_total{tenant_id=~"$tenant"}[2m])) * 60', "{{operation_name}}")],
+            [_prom_target(f'sum by (operation_name) (rate(ai_gateway_request_count_total{_f}[2m])) * 60', "{{operation_name}}")],
             unit="r/min", grid=_grid(0, 9, 12, 8),
         ),
         piechart_panel(
             "Model Distribution (last 1h)",
-            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (model_name) (increase(ai_gateway_request_count_total[1h])))', "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
+            [{"datasource": DS_PROMETHEUS, "expr": f'sort_desc(sum by (model_name) (increase(ai_gateway_request_count_total{_f}[1h])))', "legendFormat": "{{model_name}}", "refId": "A", "instant": True}],
             grid=_grid(12, 9, 6, 8),
         ),
         piechart_panel(
             "Model Provider Distribution",
-            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (model_provider) (increase(ai_gateway_request_count_total[1h])))', "legendFormat": "{{model_provider}}", "refId": "A", "instant": True}],
+            [{"datasource": DS_PROMETHEUS, "expr": f'sort_desc(sum by (model_provider) (increase(ai_gateway_request_count_total{_f}[1h])))', "legendFormat": "{{model_provider}}", "refId": "A", "instant": True}],
             grid=_grid(18, 9, 6, 8),
         ),
 
         row_panel("Errors & Retries", y=17),
         timeseries_panel(
             "Error Rate by Type",
-            [_prom_target('sum by (error_type) (rate(ai_gateway_exception_count_total{tenant_id=~"$tenant"}[5m]))', "{{error_type}}")],
+            [_prom_target(f'sum by (error_type) (rate(ai_gateway_exception_count_total{_f}[5m]))', "{{error_type}}")],
             unit="reqps", grid=_grid(0, 18, 12, 8),
         ),
         barchart_panel(
             "Errors by HTTP Status Code (last 1h)",
-            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (http_status) (increase(ai_gateway_exception_count_total{tenant_id=~"$tenant"}[1h])))', "legendFormat": "{{http_status}}", "refId": "A", "instant": True}],
+            [{"datasource": DS_PROMETHEUS, "expr": f'sort_desc(sum by (http_status) (increase(ai_gateway_exception_count_total{_f}[1h])))', "legendFormat": "{{http_status}}", "refId": "A", "instant": True}],
             unit="short", grid=_grid(12, 18, 8, 8),
         ),
         piechart_panel(
             "Error Category Mix",
-            [{"datasource": DS_PROMETHEUS, "expr": 'sort_desc(sum by (error_category) (increase(ai_gateway_exception_count_total{tenant_id=~"$tenant"}[1h])))', "legendFormat": "{{error_category}}", "refId": "A", "instant": True}],
+            [{"datasource": DS_PROMETHEUS, "expr": f'sort_desc(sum by (error_category) (increase(ai_gateway_exception_count_total{_f}[1h])))', "legendFormat": "{{error_category}}", "refId": "A", "instant": True}],
             grid=_grid(20, 18, 4, 8),
         ),
 
         row_panel("SLA Compliance", y=26),
         timeseries_panel(
-            "SLA Breach Rate by Tenant",
-            [_prom_target('sum by (tenant_id) (rate(ai_gateway_request_count_total{status="error",tenant_id=~"$tenant"}[5m])) / clamp_min(sum by (tenant_id) (rate(ai_gateway_request_count_total{tenant_id=~"$tenant"}[5m])),1e-9) * 100', "{{tenant_id}}")],
+            "SLA Breach Rate by Department",
+            [_prom_target(
+                f'sum by (department) (rate(ai_gateway_request_count_total{F.prom_error}[5m])) '
+                f'/ clamp_min(sum by (department) (rate(ai_gateway_request_count_total{_f}[5m])),1e-9) * 100',
+                "{{department}}",
+            )],
             unit="percent", grid=_grid(0, 27, 12, 8),
         ),
         barchart_panel(
             "Total Requests by Routing Reason (last 1h)",
-            [_loki_instant_target(f'sum by (routing_reason) (count_over_time({_LOKI_STREAM} event_type = "telemetry_event" [1h]))', "{{routing_reason}}")],
+            [_loki_instant_target(
+                f'sum by (routing_reason) (count_over_time({_LOKI_STREAM} event_type="telemetry_event" {F.loki} [1h]))',
+                "{{routing_reason}}",
+            )],
             unit="short", grid=_grid(12, 27, 12, 8),
             datasource=DS_LOKI,
         ),
@@ -781,9 +1147,10 @@ def build_d2() -> dict:
         row_panel("Live Request Log", y=35),
         logs_panel(
             "Live Telemetry Events",
-            f'{_LOKI_STREAM} event_type = "telemetry_event" '
+            f'{_LOKI_STREAM} event_type="telemetry_event" '
+            f'{F.loki} '
             '| line_format "{{.timestamp}} [{{.model_name}}] {{.operation_name}} '
-            'status={{.status}} lat={{.latency_ms}}ms tenant={{.tenant_id}} '
+            'status={{.status}} lat={{.latency_ms}}ms dept={{.department}} '
             'routing={{.routing_reason}}"',
             grid=_grid(0, 36, 24, 10),
         ),
@@ -795,6 +1162,7 @@ def build_d2() -> dict:
         description="Request volumes, model usage, error taxonomy, SLA compliance.",
         tags=["ai-telemetry", "traffic", "errors"],
         panels=panels,
+        variables=F.variables(),
     )
 
 
@@ -805,11 +1173,9 @@ def build_d2() -> dict:
 def build_d3() -> dict:
     global _id_counter; _id_counter = 0
 
-    _f = '{environment=~"$environment",tenant_id=~"$tenant",model_name=~"$model"}'
-    _tele = (
-        f'{_LOKI_STREAM} event_type="telemetry_event" '
-        '| tenant_id=~"$tenant" | model_name=~"$model"'
-    )
+    F = FilterSet(*FILTERS_D3)
+    _f = F.prom
+    _tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}'
 
     panels = [
         timeseries_panel(
@@ -854,7 +1220,7 @@ def build_d3() -> dict:
             "First token latency (Model Based)",
             [_loki_target(
                 f'avg by (model_name) (avg_over_time({_tele} '
-                f'| streaming="true" | unwrap first_token_ms [5m]))',
+                f'| first_token_ms > 0 | unwrap first_token_ms [5m]))',
                 "{{model_name}}", "A",
             )],
             unit="ms", grid=_grid(12, 16, 12, 8),
@@ -884,6 +1250,7 @@ def build_d3() -> dict:
         description="End-to-end latency, percentiles, model-specific latency, first-token latency, and queue delays.",
         tags=["ai-telemetry", "latency", "performance"],
         panels=panels,
+        variables=F.variables(),
     )
 
 
@@ -894,11 +1261,9 @@ def build_d3() -> dict:
 def build_d4() -> dict:
     global _id_counter; _id_counter = 0
 
-    _f = '{environment=~"$environment",tenant_id=~"$tenant",model_name=~"$model"}'
-    _tele = (
-        f'{_LOKI_STREAM} event_type="telemetry_event" '
-        '| tenant_id=~"$tenant" | model_name=~"$model"'
-    )
+    F = FilterSet(*FILTERS_D4)
+    _f = F.prom
+    _tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}'
 
     panels = [
         timeseries_panel(
@@ -919,19 +1284,13 @@ def build_d4() -> dict:
         timeseries_panel(
             "Cost per user/session",
             [
-                _loki_target(
-                    f'sum(sum by (user_id) (sum_over_time({_tele} | unwrap cost_usd [5m]))) '
-                    f'/ count(sum by (user_id) (count_over_time({_tele} [5m])))',
-                    "Avg spend / active user", "A",
-                ),
-                _loki_target(
-                    f'sum(sum by (session_id) (sum_over_time({_tele} | unwrap cost_usd [5m]))) '
-                    f'/ count(sum by (session_id) (count_over_time({_tele} [5m])))',
-                    "Avg spend / active session", "B",
+                _prom_target(
+                    f'sum(increase(ai_gateway_request_cost_USD_total{_f}[5m])) '
+                    f'/ clamp_min(sum(increase(ai_gateway_request_count_total{_f}[5m])), 1e-9)',
+                    "Avg cost / request", "A",
                 ),
             ],
             unit="currencyUSD", grid=_grid(12, 0, 12, 8),
-            datasource=DS_LOKI,
         ),
 
         timeseries_panel(
@@ -950,10 +1309,10 @@ def build_d4() -> dict:
         ),
 
         piechart_panel(
-            "Total cost breakdown",
+            "Cost by department",
             [{"datasource": DS_PROMETHEUS,
-              "expr": f'sort_desc(sum by (tenant_id) (increase(ai_gateway_request_cost_USD_total{_f}[24h])))',
-              "legendFormat": "{{tenant_id}}", "refId": "A", "instant": True}],
+              "expr": f'sort_desc(sum by (department) (increase(ai_gateway_request_cost_USD_total{_f}[24h])))',
+              "legendFormat": "{{department}}", "refId": "A", "instant": True}],
             grid=_grid(0, 16, 12, 8),
         ),
         barchart_panel(
@@ -987,6 +1346,7 @@ def build_d4() -> dict:
         description="Cost per request, user/session spend, daily and monthly totals, breakdowns, and cache savings.",
         tags=["ai-telemetry", "cost", "usage"],
         panels=panels,
+        variables=F.variables(),
     )
 
 
@@ -997,8 +1357,9 @@ def build_d4() -> dict:
 def build_d5() -> dict:
     global _id_counter; _id_counter = 0
 
-    _eval = f'{_LOKI_STREAM} event_type="eval_result"'
-    _tele = f'{_LOKI_STREAM} event_type="telemetry_event"'
+    F = FilterSet(*FILTERS_D5)
+    _eval = f'{_LOKI_STREAM} event_type="eval_result" {F.loki}'
+    _tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}'
     # % of judged responses flagged as hallucinating (faithfulness < 5 on 0–10 scale).
     _hallucination_rate = _loki_ratio(
         f'sum(count_over_time({_eval} | faithfulness < 5 [1h]))',
@@ -1124,6 +1485,7 @@ def build_d5() -> dict:
         description="Hallucination rate, factual accuracy, relevance, and groundedness from eval_result judge scores.",
         tags=["ai-telemetry", "quality", "evaluation"],
         panels=panels,
+        variables=F.variables(),
     )
 
 
@@ -1134,8 +1496,9 @@ def build_d5() -> dict:
 def build_d6() -> dict:
     global _id_counter; _id_counter = 0
 
-    _plog = f'{_LOKI_STREAM} event_type = "prompt_log_event"'
-    _tele = f'{_LOKI_STREAM} event_type = "telemetry_event"'
+    F = FilterSet(*FILTERS_D6)
+    _plog = f'{_LOKI_STREAM} event_type="prompt_log_event" {F.loki}'
+    _tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}'
 
     _pii_rate = _loki_ratio(
         f'sum(count_over_time({_plog} | pii_detected="true" [24h]))',
@@ -1255,13 +1618,13 @@ def build_d6() -> dict:
             grid=_grid(16, 22, 8, 4), datasource=DS_LOKI,
         ),
         timeseries_panel(
-            "PII Events by Tenant",
-            [_loki_target(f'sum by (tenant_id) (count_over_time({_plog} | pii_detected="true" [5m])) or vector(0)', "{{tenant_id}}")],
+            "PII Events by Department",
+            [_loki_target(f'sum by (department) (count_over_time({_plog} | pii_detected="true" [5m])) or vector(0)', "{{department}}")],
             unit="short", grid=_grid(0, 26, 12, 8), datasource=DS_LOKI,
         ),
         barchart_panel(
-            "PHI + PII Volume by Tenant (last 1h)",
-            [_loki_instant_target(f'sum by (tenant_id) (count_over_time({_tele} | data_classification=~"phi|pii" [1h]))', "{{tenant_id}}")],
+            "PHI + PII Volume by Department (last 1h)",
+            [_loki_instant_target(f'sum by (department) (count_over_time({_tele} | data_classification=~"phi|pii" [1h]))', "{{department}}")],
             unit="short", grid=_grid(12, 26, 12, 8), datasource=DS_LOKI,
         ),
 
@@ -1276,7 +1639,7 @@ def build_d6() -> dict:
         table_panel(
             "PHI / PII Requests with Trace Links",
             [{"datasource": DS_LOKI,
-              "expr": f'{_tele} | data_classification=~"phi|pii" | line_format "{{.request_id}} {{.tenant_id}} {{.model_name}} {{.trace_id}}"',
+              "expr": f'{_tele} | data_classification=~"phi|pii" | line_format "{{.request_id}} {{.department}} {{.model_name}} {{.trace_id}}"',
               "refId": "A"}],
             grid=_grid(0, 46, 24, 8), datasource=DS_LOKI,
         ),
@@ -1293,6 +1656,7 @@ def build_d6() -> dict:
         description="Toxicity score, PII detection rate, prompt injection, jailbreak, and compliance violations.",
         tags=["ai-telemetry", "safety", "security", "pii", "compliance"],
         panels=panels,
+        variables=F.variables(),
     )
 
 
@@ -1303,13 +1667,12 @@ def build_d6() -> dict:
 def build_d7() -> dict:
     global _id_counter; _id_counter = 0
 
+    F = FilterSet(*FILTERS_D7)
     _ns = 'namespace="ai-gateway-ns"'
     _gw = 'namespace="ai-gateway-ns", container="ai-gateway"'
-    _f = '{environment=~"$environment",tenant_id=~"$tenant",model_name=~"$model"}'
-    _f_completion = (
-        '{token_type="completion",environment=~"$environment",'
-        'tenant_id=~"$tenant",model_name=~"$model"}'
-    )
+    _f = F.prom
+    _f_completion = _token_selector("completion", F)
+    _f_prompt = _token_selector("prompt", F)
     _cpu_util = (
         f'sum(rate(container_cpu_usage_seconds_total{{{_gw}}}[5m])) '
         f'/ clamp_min(sum(kube_pod_status_phase{{{_ns}, phase="Running"}}), 1) * 100'
@@ -1327,8 +1690,7 @@ def build_d7() -> dict:
         f'or vector(0)'
     )
     _api_error_rate = (
-        f'sum(rate(ai_gateway_request_count_total{{status="error",environment=~"$environment",'
-        f'tenant_id=~"$tenant",model_name=~"$model"}}[5m])) '
+        f'sum(rate(ai_gateway_request_count_total{F.prom_error}[5m])) '
         f'/ clamp_min(sum(rate(ai_gateway_request_count_total{_f}[5m])), 1e-9) * 100'
     )
 
@@ -1445,7 +1807,11 @@ def build_d7() -> dict:
         ),
         timeseries_panel(
             "Pod Restart Rate",
-            [_prom_target('sum by (pod) (rate(kube_pod_container_status_restarts_total{namespace="ai-gateway-ns"}[15m]))', "{{pod}}")],
+            [_prom_target(
+                'sum by (pod) (rate(kube_pod_container_status_restarts_total{namespace="ai-gateway-ns"}[15m])) '
+                'or on() label_replace(vector(0), "pod", "none", "", "")',
+                "{{pod}}",
+            )],
             unit="ops", grid=_grid(12, 30, 12, 8),
         ),
 
@@ -1486,8 +1852,13 @@ def build_d7() -> dict:
             unit="short", grid=_grid(12, 56, 12, 8),
         ),
         timeseries_panel(
-            "Publish Error Rate by Reason",
-            [_prom_target('sum by (reason) (rate(ai_telemetry_runner_publish_errors_total[5m])) or label_replace(vector(0), "reason", "none", "", "")', "{{reason}}")],
+            "Runner Event Publish Rate",
+            [
+                _prom_target(
+                    'sum(rate(ai_gateway_request_count_total[5m]))',
+                    "events published/s", "A",
+                ),
+            ],
             unit="ops", grid=_grid(0, 64, 12, 8),
         ),
         timeseries_panel(
@@ -1501,16 +1872,19 @@ def build_d7() -> dict:
             "Collector Exporter Queue Size",
             _prom_targets(
                 ('otelcol_exporter_queue_size{exporter="otlp/tempo"}',       "tempo queue"),
-                ('otelcol_exporter_queue_size{exporter="prometheusremotewrite"}', "prom queue"),
                 ('otelcol_exporter_queue_size{exporter="loki"}',             "loki queue"),
+                ('rate(otelcol_exporter_sent_spans[2m])',                     "spans exported/s"),
+                ('rate(otelcol_exporter_sent_log_records[2m])',               "logs exported/s"),
             ),
             unit="short", grid=_grid(0, 73, 12, 8),
         ),
         timeseries_panel(
-            "Collector Export Failures",
+            "Collector Export Throughput & Failures",
             _prom_targets(
-                ('rate(otelcol_exporter_send_failed_spans[5m])', "failed spans/s"),
-                ('rate(otelcol_exporter_send_failed_log_records[5m])', "failed logs/s"),
+                ('rate(otelcol_exporter_sent_spans[2m])',                     "spans/s"),
+                ('rate(otelcol_exporter_sent_log_records[2m])',               "logs/s"),
+                ('rate(otelcol_exporter_send_failed_spans[5m])',              "failed spans/s"),
+                ('rate(otelcol_exporter_send_failed_log_records[5m])',       "failed logs/s"),
             ),
             unit="ops", grid=_grid(12, 73, 12, 8),
         ),
@@ -1522,6 +1896,7 @@ def build_d7() -> dict:
         description="CPU utilization, model throughput, OOM failures, pod health, auto-scaling, and API error rates.",
         tags=["ai-telemetry", "infrastructure", "kubernetes", "sre"],
         panels=panels,
+        variables=F.variables(),
     )
 
 
@@ -1532,16 +1907,10 @@ def build_d7() -> dict:
 def build_d8() -> dict:
     global _id_counter; _id_counter = 0
 
-    _f = '{environment=~"$environment",tenant_id=~"$tenant",model_name=~"$model"}'
-    # Single label set — PromQL rejects metric{a}{b} (two brace blocks).
-    _f_completion = (
-        '{token_type="completion",environment=~"$environment",'
-        'tenant_id=~"$tenant",model_name=~"$model"}'
-    )
-    _f_prompt = (
-        '{token_type="prompt",environment=~"$environment",'
-        'tenant_id=~"$tenant",model_name=~"$model"}'
-    )
+    F = FilterSet(*FILTERS_D8)
+    _f = F.prom
+    _f_completion = _token_selector("completion", F)
+    _f_prompt = _token_selector("prompt", F)
     _req_rate = f'clamp_min(sum(rate(ai_gateway_request_count_total{_f}[5m])), 1e-9)'
     _tok_per_req = (
         f'sum(rate(ai_gateway_request_token_total{_f}[5m])) / {_req_rate}'
@@ -1549,129 +1918,186 @@ def build_d8() -> dict:
     _prompt_per_req = (
         f'sum(rate(ai_gateway_request_token_total{_f_prompt}[5m])) / {_req_rate}'
     )
-    # Loki: keep filters on parsed JSON only; stream label is service_name.
-    _tele = f'{_LOKI_STREAM} event_type="telemetry_event"'
+    _tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}'
     _stream = f'{_tele} | stream_response_ms > 0'
     _stream_tps = f'{_tele} | tokens_per_second > 0'
 
     panels = [
+        # ── Row 1: headline KPIs (stat cards — each a different metric) ─────
+        stat_panel(
+            "Output tokens",
+            f'sum(increase(ai_gateway_request_token_total{_f_completion}[$__range]))',
+            unit="short", decimals=0,
+            thresholds=[{"color": "blue", "value": None}],
+            color_mode="value",
+            grid=_grid(0, 0, 6, 5),
+        ),
+        stat_panel(
+            "Avg tokens / request",
+            _tok_per_req,
+            unit="short", decimals=0,
+            thresholds=[{"color": "blue", "value": None}],
+            color_mode="value",
+            grid=_grid(6, 0, 6, 5),
+        ),
+        stat_panel(
+            "Context fill",
+            f'avg(avg_over_time({_tele} | unwrap context_window_utilization_pct [5m]))',
+            unit="percent", decimals=1,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 60},
+                {"color": "red", "value": 85},
+            ],
+            color_mode="value",
+            grid=_grid(12, 0, 6, 5),
+            datasource=DS_LOKI,
+        ),
+        stat_panel(
+            "Errors (5m)",
+            f'sum(increase(ai_gateway_exception_count_total{_f}[5m])) or on() vector(0)',
+            unit="short", decimals=0,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 3},
+                {"color": "red", "value": 10},
+            ],
+            color_mode="value",
+            grid=_grid(18, 0, 6, 5),
+        ),
+
+        row_panel("Output throughput", y=5),
         timeseries_panel(
             "Output Token Count",
-            [
-                _prom_target(
-                    f'sum(rate(ai_gateway_request_token_total{_f_completion}[5m]))',
-                    "Completion tokens/s", "A",
-                ),
-                _prom_target(
-                    f'sum by (model_name) (rate(ai_gateway_request_token_total{_f_completion}[5m]))',
-                    "{{model_name}}", "B",
-                ),
-            ],
-            unit="tps", grid=_grid(0, 0, 12, 8),
+            [_prom_target(
+                f'sum by (model_name) (rate(ai_gateway_request_token_total{_f_completion}[5m]))',
+                "{{model_name}}", "A",
+            )],
+            unit="tps", decimals=1,
+            stacking="normal", fill_opacity=50,
+            legend_display_mode="table",
+            legend_calcs=["lastNotNull", "mean"],
+            grid=_grid(0, 6, 16, 8),
+        ),
+        bargauge_panel(
+            "Output tokens by model (now)",
+            f'sort_desc(sum by (model_name) (rate(ai_gateway_request_token_total{_f_completion}[5m])))',
+            unit="tps",
+            legend_format="{{model_name}}",
+            color_mode="palette",
+            grid=_grid(16, 6, 8, 8),
+        ),
+
+        row_panel("Request composition", y=14),
+        piechart_panel(
+            "Token type mix",
+            [{"datasource": DS_PROMETHEUS,
+              "expr": f'sort_desc(sum by (token_type) (increase(ai_gateway_request_token_total{_f}[1h])))',
+              "legendFormat": "{{token_type}}", "refId": "A", "instant": True}],
+            pie_type="donut",
+            grid=_grid(0, 15, 8, 8),
         ),
         timeseries_panel(
             "Total tokens per request",
-            [
-                _prom_target(_tok_per_req, "Avg tokens / request", "A"),
-                _prom_target(
-                    f'sum by (model_name) (rate(ai_gateway_request_token_total{_f}[5m])) '
-                    f'/ clamp_min(sum by (model_name) (rate(ai_gateway_request_count_total{_f}[5m])), 1e-9)',
-                    "{{model_name}}", "B",
-                ),
-            ],
-            unit="short", decimals=0, grid=_grid(12, 0, 12, 8),
+            [_prom_target(_tok_per_req, "Avg tokens / request", "A")],
+            unit="short", decimals=0,
+            fill_opacity=25,
+            grid=_grid(8, 15, 8, 8),
+        ),
+        bargauge_panel(
+            "Prompt size by model",
+            f'sort_desc(sum by (model_name) (rate(ai_gateway_request_token_total{_f_prompt}[5m])) '
+            f'/ clamp_min(sum by (model_name) (rate(ai_gateway_request_count_total{_f}[5m])), 1e-9))',
+            unit="short",
+            legend_format="{{model_name}}",
+            color_mode="palette",
+            grid=_grid(16, 15, 8, 8),
         ),
 
-        timeseries_panel(
+        row_panel("Context window", y=23),
+        gauge_panel(
             "Context Window Utilization (%)",
-            [
-                _loki_target(
-                    f'avg(avg_over_time({_tele} | unwrap context_window_utilization_pct [5m]))',
-                    "Avg utilization %", "A",
-                ),
-                _loki_target(
-                    f'avg by (model_name) (avg_over_time({_tele} | unwrap context_window_utilization_pct [5m]))',
-                    "{{model_name}}", "B",
-                ),
+            f'avg(avg_over_time({_tele} | unwrap context_window_utilization_pct [5m]))',
+            unit="percent", min_val=0, max_val=100,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 60},
+                {"color": "red", "value": 85},
             ],
-            unit="percent", decimals=1, axis_soft_max=100,
-            grid=_grid(0, 8, 12, 8), datasource=DS_LOKI,
+            grid=_grid(0, 24, 6, 8),
+            datasource=DS_LOKI,
+        ),
+        bargauge_panel(
+            "Context fill by model",
+            f'sort_desc(avg by (model_name) (avg_over_time({_tele} | unwrap context_window_utilization_pct [5m])))',
+            unit="percent",
+            legend_format="{{model_name}}",
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 60},
+                {"color": "red", "value": 85},
+            ],
+            grid=_grid(6, 24, 10, 8),
+            datasource=DS_LOKI,
         ),
         timeseries_panel(
-            "Prompt size",
-            [
-                _prom_target(_prompt_per_req, "Avg prompt tokens / request", "A"),
-                _prom_target(
-                    f'sum by (model_name) (rate(ai_gateway_request_token_total{_f_prompt}[5m])) '
-                    f'/ clamp_min(sum by (model_name) (rate(ai_gateway_request_count_total{_f}[5m])), 1e-9)',
-                    "{{model_name}}", "B",
-                ),
-            ],
-            unit="short", decimals=0, grid=_grid(12, 8, 12, 8),
+            "Prompt size trend",
+            [_prom_target(_prompt_per_req, "Avg prompt tokens / request", "A")],
+            unit="short", decimals=0,
+            fill_opacity=30,
+            grid=_grid(16, 24, 8, 8),
         ),
 
+        row_panel("Streaming performance", y=32),
         timeseries_panel(
             "Live token generation rate",
-            [
-                _prom_target(
-                    f'sum(rate(ai_gateway_request_token_total{_f_completion}[1m]))',
-                    "Live completion tokens/s", "A",
-                ),
-                _prom_target(
-                    f'sum by (model_name) (rate(ai_gateway_request_token_total{_f_completion}[1m]))',
-                    "{{model_name}}", "B",
-                ),
-            ],
-            unit="tps", grid=_grid(0, 16, 12, 8),
+            [_prom_target(
+                f'sum by (model_name) (rate(ai_gateway_request_token_total{_f_completion}[1m]))',
+                "{{model_name}}", "A",
+            )],
+            unit="tps", decimals=1,
+            stacking="normal", fill_opacity=45,
+            legend_display_mode="table",
+            legend_calcs=["lastNotNull"],
+            grid=_grid(0, 33, 12, 8),
         ),
         timeseries_panel(
             "Streaming response latency",
-            [
-                _loki_target(
-                    f'avg(avg_over_time({_stream} | unwrap stream_response_ms [5m]))',
-                    "Avg stream response ms", "A",
-                ),
-                _loki_target(
-                    f'avg by (model_name) (avg_over_time({_stream} | unwrap stream_response_ms [5m]))',
-                    "{{model_name}}", "B",
-                ),
-            ],
-            unit="ms", grid=_grid(12, 16, 12, 8),
+            [_loki_target(
+                f'avg by (model_name) (avg_over_time({_stream} | unwrap stream_response_ms [5m]))',
+                "{{model_name}}", "A",
+            )],
+            unit="ms", decimals=0,
+            grid=_grid(12, 33, 12, 8),
             datasource=DS_LOKI,
         ),
 
-        timeseries_panel(
-            "Tokens/sec",
-            [
-                _loki_target(
-                    f'avg(avg_over_time({_stream_tps} | unwrap tokens_per_second [5m]))',
-                    "Avg tokens/s", "A",
-                ),
-                _loki_target(
-                    f'avg by (model_name) (avg_over_time({_stream_tps} | unwrap tokens_per_second [5m]))',
-                    "{{model_name}}", "B",
-                ),
-            ],
-            unit="tps", grid=_grid(0, 24, 12, 8),
+        row_panel("Streaming throughput & errors", y=41),
+        bargauge_panel(
+            "Streaming tokens/sec",
+            f'sort_desc(avg by (model_name) (avg_over_time({_stream_tps} | unwrap tokens_per_second [5m])))',
+            unit="tps",
+            legend_format="{{model_name}}",
+            color_mode="palette",
+            grid=_grid(0, 42, 10, 7),
             datasource=DS_LOKI,
         ),
-        timeseries_panel(
-            "Real-time error spikes",
-            [
-                _prom_target(
-                    f'sum(increase(ai_gateway_exception_count_total{_f}[5m])) or on() vector(0)',
-                    "Errors (5m increase)", "A",
-                ),
-                _prom_target(
-                    f'sum(rate(ai_gateway_exception_count_total{_f}[1m])) * 60',
-                    "Errors / min", "B",
-                ),
-                _prom_target(
-                    f'sum by (error_type) (increase(ai_gateway_exception_count_total{_f}[5m]))',
-                    "{{error_type}}", "C",
-                ),
-            ],
-            unit="short", grid=_grid(12, 24, 12, 8),
+        stat_panel(
+            "Avg stream tokens/s",
+            f'avg(avg_over_time({_stream_tps} | unwrap tokens_per_second [5m]))',
+            unit="tps", decimals=1,
+            thresholds=[{"color": "blue", "value": None}],
+            color_mode="value",
+            grid=_grid(10, 42, 5, 7),
+            datasource=DS_LOKI,
+        ),
+        barchart_panel(
+            "Errors by type (5m)",
+            [{"datasource": DS_PROMETHEUS,
+              "expr": f'sort_desc(sum by (error_type) (increase(ai_gateway_exception_count_total{_f}[5m])))',
+              "legendFormat": "{{error_type}}", "refId": "A",
+              "instant": True, "queryType": "instant"}],
+            unit="short", grid=_grid(15, 42, 9, 7),
         ),
     ]
 
@@ -1682,6 +2108,7 @@ def build_d8() -> dict:
         tags=["ai-telemetry", "tokens", "context", "streaming"],
         panels=panels,
         refresh="15s",
+        variables=F.variables(),
     )
 
 
@@ -1692,11 +2119,10 @@ def build_d8() -> dict:
 def build_d9() -> dict:
     global _id_counter; _id_counter = 0
 
-    _tele = (
-        f'{_LOKI_STREAM} event_type="telemetry_event" '
-        '| tenant_id=~"$tenant" | model_name=~"$model"'
-    )
-    _login = f'{_LOKI_STREAM} event_type="login_event" | tenant_id=~"$tenant"'
+    F = FilterSet(*FILTERS_D9)
+    _tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}'
+    _tele_by_dept = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki_except("department")}'
+    _login = f'{_LOKI_STREAM} event_type="login_event" {F.login_loki}'
 
     # LogQL does not support Prometheus clamp_min — use `or on(...) vector(...)` instead.
     _prev_15m_tokens = (
@@ -1705,14 +2131,17 @@ def build_d9() -> dict:
     )
     _spike_pct = (
         f"("
-        f"sum(sum_over_time({_tele} | unwrap total_tokens [15m]) "
+        f"sum(sum_over_time({_tele} | unwrap total_tokens [15m])) "
         f"/ ({_prev_15m_tokens} or vector(1)) - 1) * 100"
     )
     _user_spike_ratio = (
         f"topk(10, "
-        f"sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [15m])) "
-        f"/ (sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [1h])) * 0.25 "
-        f"or on(user_id) vector(1e-6)))"
+        f"(sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [15m]))) "
+        f"/ ("
+        f"  sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [30m])) "
+        f"  - sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [15m])) "
+        f"  or on(user_id) vector(1)"
+        f"))"
     )
 
     panels = [
@@ -1726,14 +2155,14 @@ def build_d9() -> dict:
         ),
         stat_panel(
             "Active users (24h)",
-            f'count(sum by (user_id) (count_over_time({_tele} [24h])))',
+            f'count(count by (user_id) (count_over_time({_tele} | user_id != "" [24h])))',
             unit="short", decimals=0,
             thresholds=[{"color": "blue", "value": None}],
             grid=_grid(6, 1, 6, 4), datasource=DS_LOKI,
         ),
         stat_panel(
             "Monthly active users (30d)",
-            f'count(sum by (user_id) (count_over_time({_login} [30d])))',
+            f'count(count by (user_id) (count_over_time({_login} | user_id != "" [30d])))',
             unit="short", decimals=0,
             thresholds=[{"color": "blue", "value": None}],
             grid=_grid(12, 1, 6, 4), datasource=DS_LOKI,
@@ -1758,62 +2187,74 @@ def build_d9() -> dict:
             )],
             unit="short", grid=_grid(0, 5, 12, 8), datasource=DS_LOKI,
         ),
-        timeseries_panel(
-            "Users added (daily active logins)",
-            [_loki_target(
-                f'count(sum by (user_id) (count_over_time({_login} [1d])))',
-                "Distinct users / day", "A",
-            )],
-            unit="short", decimals=0, grid=_grid(12, 5, 12, 8), datasource=DS_LOKI,
+        stat_panel(
+            "Daily active users (24h)",
+            f'count(count by (user_id) (count_over_time({_login} [24h])))',
+            unit="short", decimals=0,
+            thresholds=[{"color": "blue", "value": None}],
+            color_mode="value",
+            grid=_grid(12, 5, 12, 8), datasource=DS_LOKI,
         ),
 
-        row_panel("Token consumption by user", y=13),
+        barchart_panel(
+            "Active users by department (24h)",
+            [_loki_instant_target(
+                f'sort_desc(count by (department) (count by (user_id, department) '
+                f'(count_over_time({_tele_by_dept} | user_id != "" | department != "" [24h]))))',
+                "{{department}}",
+            )],
+            unit="short",
+            orientation="horizontal",
+            grid=_grid(0, 13, 24, 8),
+            datasource=DS_LOKI,
+        ),
+
+        row_panel("Token consumption by user", y=21),
         barchart_panel(
             "Top 10 users — tokens (24h)",
             [_loki_instant_target(
                 f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [24h])))',
                 "{{user_id}}",
             )],
-            unit="short", grid=_grid(0, 14, 12, 8), datasource=DS_LOKI,
+            unit="short", grid=_grid(0, 22, 12, 8), datasource=DS_LOKI,
         ),
-        timeseries_panel(
-            "Top 10 users — token rate (5m)",
-            [_loki_target(
-                f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [5m])))',
-                "{{user_id}}", "A",
-            )],
-            unit="short", grid=_grid(12, 14, 12, 8), datasource=DS_LOKI,
-        ),
-
-        row_panel("Session-level usage", y=22),
         barchart_panel(
-            "Top 10 users — session time (latency sum, 6h)",
+            "Top 10 users — token rate (5m)",
             [_loki_instant_target(
-                f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap latency_ms [6h])))',
+                f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [5m])))',
                 "{{user_id}}",
             )],
-            unit="ms", grid=_grid(0, 23, 12, 8), datasource=DS_LOKI,
-        ),
-        table_panel(
-            "Session usage by user",
-            [{"datasource": DS_LOKI,
-              "expr": (
-                  f"topk(50, sum by (user_id, session_id) "
-                  f"(sum_over_time({_tele} | unwrap total_tokens [6h])))"
-              ),
-              "refId": "A"}],
-            grid=_grid(12, 23, 12, 8), datasource=DS_LOKI,
-        ),
-        timeseries_panel(
-            "Session time by user (top 10, 5m)",
-            [_loki_target(
-                f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap latency_ms [5m])))',
-                "{{user_id}}", "A",
-            )],
-            unit="ms", grid=_grid(0, 31, 24, 8), datasource=DS_LOKI,
+            unit="short", grid=_grid(12, 22, 12, 8), datasource=DS_LOKI,
         ),
 
-        row_panel("Usage spikes", y=39),
+        row_panel("Session-level usage", y=30),
+        barchart_panel(
+            "Top 10 users — session time (6h)",
+            [_loki_instant_target(
+                f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap session_time_ms [6h])))',
+                "{{user_id}}",
+            )],
+            unit="ms", grid=_grid(0, 31, 12, 8), datasource=DS_LOKI,
+        ),
+        table_panel(
+            "Top users by tokens (6h)",
+            [_loki_instant_target(
+                f"topk(50, sum by (user_id, department) "
+                f"(sum_over_time({_tele} | unwrap total_tokens [6h])))",
+                "",
+            )],
+            grid=_grid(12, 31, 12, 8), datasource=DS_LOKI,
+        ),
+        barchart_panel(
+            "Session time by user (top 10, 5m)",
+            [_loki_instant_target(
+                f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap session_time_ms [5m])))',
+                "{{user_id}}",
+            )],
+            unit="ms", grid=_grid(0, 39, 24, 8), datasource=DS_LOKI,
+        ),
+
+        row_panel("Usage spikes", y=47),
         timeseries_panel(
             "Token volume — spike detector (5m buckets)",
             [
@@ -1822,21 +2263,21 @@ def build_d9() -> dict:
                     "Tokens / 5m", "A",
                 ),
                 _loki_target(
-                    f'avg_over_time(sum(sum_over_time({_tele} | unwrap total_tokens [5m]))[1h:5m])',
-                    "1h rolling avg", "B",
+                    f'sum(sum_over_time({_tele} | unwrap total_tokens [1h])) / 12',
+                    "1h avg per 5m", "B",
                 ),
             ],
-            unit="short", grid=_grid(0, 40, 14, 8), datasource=DS_LOKI,
+            unit="short", grid=_grid(0, 48, 14, 8), datasource=DS_LOKI,
         ),
         barchart_panel(
-            "Top 10 users — spike ratio (15m vs 1h baseline)",
+            "Top 10 users — spike ratio (15m vs prev 15m)",
             [_loki_instant_target(_user_spike_ratio, "{{user_id}}")],
-            unit="short", grid=_grid(14, 40, 10, 8), datasource=DS_LOKI,
+            unit="short", grid=_grid(14, 48, 10, 8), datasource=DS_LOKI,
         ),
         logs_panel(
             "Recent login events",
             f'{_login}',
-            grid=_grid(0, 48, 24, 8), datasource=DS_LOKI,
+            grid=_grid(0, 56, 24, 8), datasource=DS_LOKI,
         ),
     ]
 
@@ -1849,6 +2290,7 @@ def build_d9() -> dict:
         ),
         tags=["ai-telemetry", "users", "sessions", "login"],
         panels=panels,
+        variables=F.variables(),
     )
 
 

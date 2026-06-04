@@ -21,6 +21,9 @@ ACR_NAME="${ACR_NAME:-acrtelemetrydevaj}"
 
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 
+log "Regenerating dashboard JSON (per-dashboard filter sets) ..."
+python3 "$ROOT/dashboards/generate_dashboards.py"
+
 log "Building $ACR_NAME/grafana:latest (baked dashboard UIDs) ..."
 az acr build --registry "$ACR_NAME" --platform linux/amd64 \
   --image "grafana:latest" -f "$ROOT/Dockerfile.grafana" "$ROOT"

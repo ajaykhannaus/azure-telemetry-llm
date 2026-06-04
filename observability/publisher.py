@@ -58,7 +58,8 @@ class EventHubPublisher:
     @property
     def queue_depth(self) -> int:
         if self._mock_mode or self._producer is None:
-            return 0
+            # Simulated producer backlog for local infra dashboards.
+            return random.randint(0, 12)
         try:
             return int(len(self._producer))  # type: ignore[arg-type]
         except Exception:

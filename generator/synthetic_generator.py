@@ -13,6 +13,7 @@ New in v2:
 """
 from __future__ import annotations
 
+import math
 import os
 import random
 import uuid
@@ -137,14 +138,61 @@ MODEL_CONFIG: dict[str, dict[str, Any]] = {
 }
 
 # ---------------------------------------------------------------------------
-# Client profiles — realistic enterprise teams
+# Per-model decode dynamics — drive a *token-correlated* latency model so
+# response time scales with output length (decode) and prompt size (prefill),
+# exactly like a real LLM. tps = steady-state output tokens/sec.
+# ---------------------------------------------------------------------------
+
+_MODEL_DYNAMICS: dict[str, dict[str, float]] = {
+    "claude-haiku-3-5":  {"tps": 115, "tps_cov": 0.35, "ttft_ms": 360, "prefill_ms_per_1k": 8.0},
+    "claude-sonnet-4-5": {"tps": 62,  "tps_cov": 0.35, "ttft_ms": 520, "prefill_ms_per_1k": 11.0},
+    "claude-opus-4-6":   {"tps": 38,  "tps_cov": 0.40, "ttft_ms": 820, "prefill_ms_per_1k": 16.0},
+    "gpt-4o":            {"tps": 78,  "tps_cov": 0.35, "ttft_ms": 600, "prefill_ms_per_1k": 10.0},
+    "gpt-4o-mini":       {"tps": 130, "tps_cov": 0.35, "ttft_ms": 300, "prefill_ms_per_1k": 6.0},
+    "gemini-1.5-flash":  {"tps": 145, "tps_cov": 0.35, "ttft_ms": 250, "prefill_ms_per_1k": 5.0},
+}
+for _m, _d in _MODEL_DYNAMICS.items():
+    MODEL_CONFIG[_m].update(_d)
+
+# ---------------------------------------------------------------------------
+# Operation workload shapes — prompt/output scaling + retrieval-augmented
+# context size. Large-context ops (contract review, clinical notes, RAG
+# summarisation, analytics) attach a retrieved-document block, so context-window
+# utilisation reflects real document workloads instead of sitting near zero.
+# ---------------------------------------------------------------------------
+
+OPERATION_PROFILES: dict[str, dict[str, float]] = {
+    "clinical_note_analysis": {"prompt_scale": 3.0, "completion_scale": 1.3, "rag_tokens": 9_000},
+    "contract_review":        {"prompt_scale": 4.0, "completion_scale": 1.8, "rag_tokens": 28_000},
+    "summarisation":          {"prompt_scale": 3.5, "completion_scale": 0.7, "rag_tokens": 14_000},
+    "report_generation":      {"prompt_scale": 2.5, "completion_scale": 2.4, "rag_tokens": 6_000},
+    "risk_assessment":        {"prompt_scale": 2.5, "completion_scale": 1.5, "rag_tokens": 7_500},
+    "data_analysis":          {"prompt_scale": 3.0, "completion_scale": 1.6, "rag_tokens": 11_000},
+    "code_generation":        {"prompt_scale": 1.8, "completion_scale": 2.2, "rag_tokens": 0},
+    "code_review":            {"prompt_scale": 2.6, "completion_scale": 1.1, "rag_tokens": 0},
+    "product_description":    {"prompt_scale": 0.6, "completion_scale": 0.8, "rag_tokens": 0},
+    "text_generation":        {"prompt_scale": 0.8, "completion_scale": 1.4, "rag_tokens": 0},
+    "chat_completion":        {"prompt_scale": 1.0, "completion_scale": 1.0, "rag_tokens": 0},
+}
+_DEFAULT_OP_PROFILE: dict[str, float] = {"prompt_scale": 1.0, "completion_scale": 1.0, "rag_tokens": 0}
+
+# ---------------------------------------------------------------------------
+# Organization — single enterprise; client profiles map to departments
+# ---------------------------------------------------------------------------
+
+ORGANIZATION = "acme-corp"
+
+# ---------------------------------------------------------------------------
+# Client profiles — department teams within the organization
 # ---------------------------------------------------------------------------
 
 CLIENT_PROFILES: dict[str, dict[str, Any]] = {
     "healthcare-portal": {
+        "department":        "clinical-operations",
+        "department_name":   "Clinical Operations",
         "weight":            0.20,
         "sla_tier":          "premium",       # p95 latency target ms
-        "p95_latency_ms":    2_000,
+        "p95_latency_ms":    12_000,
         "daily_budget_usd":  150.0,
         "preferred_models":  ["claude-sonnet-4-5", "claude-haiku-3-5"],
         "fallback_model":    "gpt-4o-mini",
@@ -160,9 +208,11 @@ CLIENT_PROFILES: dict[str, dict[str, Any]] = {
         "user_count":        200,
     },
     "legal-firm": {
+        "department":        "legal",
+        "department_name":   "Legal",
         "weight":            0.15,
         "sla_tier":          "premium",
-        "p95_latency_ms":    4_000,
+        "p95_latency_ms":    30_000,
         "daily_budget_usd":  200.0,
         "preferred_models":  ["claude-opus-4-6", "claude-sonnet-4-5"],
         "fallback_model":    "claude-sonnet-4-5",
@@ -177,9 +227,11 @@ CLIENT_PROFILES: dict[str, dict[str, Any]] = {
         "user_count":        80,
     },
     "ecommerce-brand": {
+        "department":        "marketing",
+        "department_name":   "Marketing & E-commerce",
         "weight":            0.18,
         "sla_tier":          "standard",
-        "p95_latency_ms":    1_500,
+        "p95_latency_ms":    4_000,
         "daily_budget_usd":  90.0,
         "preferred_models":  ["gpt-4o-mini", "claude-haiku-3-5"],
         "fallback_model":    "gemini-1.5-flash",
@@ -194,9 +246,11 @@ CLIENT_PROFILES: dict[str, dict[str, Any]] = {
         "user_count":        5000,
     },
     "financial-svc": {
+        "department":        "finance",
+        "department_name":   "Finance",
         "weight":            0.14,
         "sla_tier":          "premium",
-        "p95_latency_ms":    1_000,
+        "p95_latency_ms":    12_000,
         "daily_budget_usd":  180.0,
         "preferred_models":  ["claude-sonnet-4-5", "gpt-4o"],
         "fallback_model":    "claude-haiku-3-5",
@@ -212,9 +266,11 @@ CLIENT_PROFILES: dict[str, dict[str, Any]] = {
         "user_count":        150,
     },
     "dev-agency": {
+        "department":        "engineering",
+        "department_name":   "Engineering",
         "weight":            0.16,
         "sla_tier":          "standard",
-        "p95_latency_ms":    3_000,
+        "p95_latency_ms":    16_000,
         "daily_budget_usd":  60.0,
         "preferred_models":  ["gpt-4o", "claude-sonnet-4-5"],
         "fallback_model":    "gpt-4o-mini",
@@ -229,9 +285,11 @@ CLIENT_PROFILES: dict[str, dict[str, Any]] = {
         "user_count":        300,
     },
     "internal-tools": {
+        "department":        "it-platform",
+        "department_name":   "IT & Platform",
         "weight":            0.10,
         "sla_tier":          "basic",
-        "p95_latency_ms":    5_000,
+        "p95_latency_ms":    6_000,
         "daily_budget_usd":  30.0,
         "preferred_models":  ["claude-haiku-3-5", "gpt-4o-mini", "gemini-1.5-flash"],
         "fallback_model":    "gemini-1.5-flash",
@@ -246,9 +304,11 @@ CLIENT_PROFILES: dict[str, dict[str, Any]] = {
         "user_count":        500,
     },
     "data-science": {
+        "department":        "data-science",
+        "department_name":   "Data Science",
         "weight":            0.07,
         "sla_tier":          "standard",
-        "p95_latency_ms":    8_000,
+        "p95_latency_ms":    40_000,
         "daily_budget_usd":  40.0,
         "preferred_models":  ["claude-opus-4-6", "gpt-4o"],
         "fallback_model":    "claude-sonnet-4-5",
@@ -320,6 +380,42 @@ _spend_date: str = ""   # YYYY-MM-DD; resets on date change
 # Per-client active sessions  {client_name: [session_id, ...]}
 _active_sessions: dict[str, list[str]] = defaultdict(list)
 _session_turn_counts: dict[str, int] = defaultdict(int)  # session_id → turns so far
+# session_id → {target_ms, max_turns} — wall-clock engagement time, not API latency
+_session_meta: dict[str, dict[str, float | int]] = {}
+
+_MIN_SESSION_MS = 240_000   # 4 minutes minimum total session time
+
+# ---------------------------------------------------------------------------
+# Stable per-department user pools. A user recurs across many sessions over
+# time (real returning-user behaviour), and Zipf-like weighting makes a small
+# set of "power users" dominate consumption — so top-N / MAU / returning-user
+# dashboards behave like production instead of users==sessions.
+# ---------------------------------------------------------------------------
+
+_USER_POOL: dict[str, list[str]] = {}
+_USER_WEIGHTS: dict[str, list[float]] = {}
+_session_user: dict[str, str] = {}   # session_id → user_id (stable for the session)
+
+
+def _user_pool_for(client_name: str) -> tuple[list[str], list[float]]:
+    dept = CLIENT_PROFILES[client_name]["department"]
+    if dept not in _USER_POOL:
+        n = max(1, min(int(CLIENT_PROFILES[client_name]["user_count"]), 800))
+        _USER_POOL[dept] = [f"u-{dept[:4]}-{i:05d}" for i in range(1, n + 1)]
+        # A few heavy users, a long tail of light ones.
+        _USER_WEIGHTS[dept] = [1.0 / (i ** 0.85) for i in range(1, n + 1)]
+    return _USER_POOL[dept], _USER_WEIGHTS[dept]
+
+
+def _user_for_session(client_name: str, session_id: str) -> str:
+    uid = _session_user.get(session_id)
+    if uid is None:
+        pool, weights = _user_pool_for(client_name)
+        uid = random.choices(pool, weights=weights, k=1)[0]
+        _session_user[session_id] = uid
+        if len(_session_user) > 20_000:        # bound memory
+            _session_user.pop(next(iter(_session_user)))
+    return uid
 
 # ---------------------------------------------------------------------------
 # Error taxonomy
@@ -361,15 +457,30 @@ def _traffic_multiplier_for_region(region: str) -> float:
 
 
 def traffic_multiplier() -> float:
-    """Weighted-average traffic multiplier across all active regions."""
+    """Weighted-average traffic multiplier across all active regions, with a
+    weekend dip — enterprise LLM traffic is much lighter on Sat/Sun."""
     total = 0.0
     for name, cfg in REGIONS.items():
         total += _traffic_multiplier_for_region(name) * cfg["global_weight"]
+    if datetime.now(timezone.utc).weekday() >= 5:   # 5=Sat, 6=Sun
+        total *= 0.35
     return total
 
 
 def _clamp_positive(val: float) -> int:
     return max(1, int(round(val)))
+
+
+def _lognorm(mean: float, cov: float) -> float:
+    """Sample a right-skewed value with arithmetic mean ≈ ``mean`` and the given
+    coefficient of variation (std/mean). Real LLM latency and token counts are
+    log-normal, not Gaussian — this is what produces the fat p95/p99 tail and
+    the occasional very-large prompt/response seen in production traffic."""
+    if mean <= 0:
+        return 0.0
+    sigma2 = math.log(1.0 + cov * cov)
+    mu = math.log(mean) - 0.5 * sigma2
+    return math.exp(random.gauss(mu, math.sqrt(sigma2)))
 
 
 def _reset_daily_spend_if_needed() -> None:
@@ -422,8 +533,26 @@ def _pick_model_for_client(client_name: str, anomaly_model: str | None) -> tuple
     return chosen, reason
 
 
-def _get_or_create_session(client_name: str, avg_turns: int) -> tuple[str, int]:
-    """Return (session_id, turn_number). Creates or continues an existing session."""
+def _close_session(client_name: str, sid: str) -> None:
+    sessions = _active_sessions[client_name]
+    if sid in sessions:
+        sessions.remove(sid)
+    _session_turn_counts.pop(sid, None)
+    _session_meta.pop(sid, None)
+    _session_user.pop(sid, None)
+
+
+def _session_time_ms_for_turn(session_id: str, turn_number: int) -> float:
+    """Wall-clock time the user spent this turn (reading, typing, waiting — not API latency)."""
+    meta = _session_meta[session_id]
+    max_turns = int(meta["max_turns"])
+    target_ms = float(meta["target_ms"])
+    base = target_ms / max_turns
+    return round(base * random.uniform(0.85, 1.15), 2)
+
+
+def _get_or_create_session(client_name: str, avg_turns: int) -> tuple[str, int, float]:
+    """Return (session_id, turn_number, session_time_ms). Creates or continues a session."""
     sessions = _active_sessions[client_name]
 
     # Reuse an existing session 60 % of the time if one exists
@@ -431,20 +560,24 @@ def _get_or_create_session(client_name: str, avg_turns: int) -> tuple[str, int]:
         sid = random.choice(sessions)
         _session_turn_counts[sid] += 1
         turn = _session_turn_counts[sid]
-        # Close session when it reaches avg_turns * 2
-        if turn >= avg_turns * 2:
-            sessions.remove(sid)
-            del _session_turn_counts[sid]
-        return sid, turn
+        session_time = _session_time_ms_for_turn(sid, turn)
+        if turn >= _session_meta[sid]["max_turns"]:
+            _close_session(client_name, sid)
+        return sid, turn, session_time
 
-    # New session
+    # New session — target 4–25 min of user engagement spread across turns
     sid = str(uuid.uuid4())
     sessions.append(sid)
     if len(sessions) > 50:           # cap per-client active sessions
         old = sessions.pop(0)
-        _session_turn_counts.pop(old, None)
+        _close_session(client_name, old)
+    max_turns = max(2, int(random.gauss(avg_turns, 0.8)))
+    _session_meta[sid] = {
+        "target_ms": random.uniform(_MIN_SESSION_MS, 1_500_000),
+        "max_turns": max_turns,
+    }
     _session_turn_counts[sid] = 1
-    return sid, 1
+    return sid, 1, _session_time_ms_for_turn(sid, 1)
 
 
 def _apply_anomaly(
@@ -587,19 +720,26 @@ def _enrich_mock_event(event: dict[str, Any]) -> None:
         event["routing_reason"] = _MOCK_ROUTING_REASONS[_mock_routing_idx % len(_MOCK_ROUTING_REASONS)]
         _mock_routing_idx += 1
 
-    # Streaming / throughput panels (latency dashboard).
-    if not event.get("streaming") and random.random() < 0.50:
+    # Streaming / throughput panels (latency dashboard) — convert some
+    # successful non-streaming events to streaming, deriving the phase split
+    # from the model's real decode throughput so tokens/sec stays realistic.
+    if (not event.get("streaming") and event.get("status") == "success"
+            and random.random() < 0.45):
         lat = float(event["latency_ms"])
+        comp = float(event.get("completion_tokens") or 0)
+        mcfg = MODEL_CONFIG.get(event.get("model_name"), {})
+        tps = max(1.0, _lognorm(mcfg.get("tps", 80.0), mcfg.get("tps_cov", 0.35)))
+        stream_ms = round(comp / tps * 1000.0, 2) if comp > 0 else round(lat * 0.5, 2)
+        stream_ms = min(stream_ms, round(lat * 0.95, 2))
+        queue = round(lat * 0.04, 2)
+        ttft = round(max(20.0, lat - stream_ms - queue), 2)
         event["streaming"] = True
-        event["queue_wait_ms"] = round(lat * 0.05, 2)
-        event["first_token_ms"] = round(lat * 0.22, 2)
-        event["stream_response_ms"] = round(lat * 0.38, 2)
-        event["model_inference_ms"] = round(
-            max(0.0, lat - event["queue_wait_ms"] - event["first_token_ms"] - event["stream_response_ms"]), 2,
-        )
-        comp = float(event.get("completion_tokens") or 100)
-        event["tokens_per_second"] = round(
-            comp / max(event["stream_response_ms"] / 1000.0, 0.001), 2,
+        event["queue_wait_ms"] = queue
+        event["first_token_ms"] = ttft
+        event["stream_response_ms"] = stream_ms
+        event["model_inference_ms"] = stream_ms
+        event["tokens_per_second"] = (
+            round(comp / max(stream_ms / 1000.0, 0.001), 2) if comp > 0 else 0.0
         )
 
     # Budget-exhausted panel (cost dashboard).
@@ -671,61 +811,57 @@ def generate_event(error_rate: float = 0.008) -> dict[str, Any]:
     cfg = MODEL_CONFIG[model_name]
 
     # ── Session & turn ───────────────────────────────────────────────────
-    session_id, turn_number = _get_or_create_session(client_name, profile["avg_session_turns"])
+    session_id, turn_number, session_time_ms = _get_or_create_session(
+        client_name, profile["avg_session_turns"],
+    )
 
     # ── Operation ────────────────────────────────────────────────────────
     ops = profile["operations"]
     operation_name: str = random.choices(list(ops.keys()), weights=list(ops.values()), k=1)[0]
 
-    # ── Token generation ─────────────────────────────────────────────────
-    # Longer conversations accumulate context → more prompt tokens per turn
-    context_factor = 1.0 + (turn_number - 1) * 0.15
-    prompt_tokens = _clamp_positive(
-        random.gauss(cfg["prompt_tokens_mean"] * context_factor, cfg["prompt_tokens_std"])
-    )
+    op = OPERATION_PROFILES.get(operation_name, _DEFAULT_OP_PROFILE)
+
+    # ── Token generation (log-normal; operation- and turn-aware) ─────────
+    # Conversation context accumulates with each turn; operation shape decides
+    # base size; large-context ops attach a retrieved-document block.
+    context_factor = 1.0 + (turn_number - 1) * 0.18
+    context_window = cfg["context_window_tokens"]
+
+    base_prompt = cfg["prompt_tokens_mean"] * op["prompt_scale"] * context_factor
+    prompt_tokens = _clamp_positive(_lognorm(base_prompt, 0.55))
+    if op["rag_tokens"] > 0:                       # retrieved / long-document context
+        prompt_tokens += _clamp_positive(_lognorm(op["rag_tokens"], 0.9))
+    prompt_tokens = min(prompt_tokens, int(context_window * 0.92))
+
     completion_tokens = _clamp_positive(
-        random.gauss(cfg["completion_tokens_mean"], cfg["completion_tokens_std"])
+        _lognorm(cfg["completion_tokens_mean"] * op["completion_scale"], 0.6)
     )
-    cache_mean = cfg["cache_read_tokens_mean"] * min(context_factor, 3.0)
+
+    # Prompt-cache reads (Anthropic models; grows with multi-turn context).
+    cache_mean = cfg["cache_read_tokens_mean"] * min(context_factor, 4.0)
     cache_read_tokens = (
-        _clamp_positive(random.gauss(cache_mean, cache_mean * 0.3))
+        min(_clamp_positive(_lognorm(cache_mean, 0.5)), prompt_tokens)
         if cache_mean > 0 else 0
     )
-    total_tokens = prompt_tokens + completion_tokens + cache_read_tokens
-    context_window = cfg["context_window_tokens"]
     context_window_utilization_pct = round(
-        min(100.0, (prompt_tokens + cache_read_tokens) / context_window * 100), 3,
+        min(100.0, prompt_tokens / context_window * 100), 3,
     )
 
-    # ── Latency (region adds ~50-150 ms of network jitter) ───────────────
-    network_jitter = random.uniform(50, 150) if region != "us-east-1" else 0.0
-    base_latency = max(50.0, random.gauss(cfg["latency_mean_ms"], cfg["latency_std_ms"]))
+    # ── Token-correlated latency ─────────────────────────────────────────
+    # latency ≈ TTFT (+prefill for big prompts) + decode (output ÷ throughput)
+    # + a little network jitter. Log-normal throughput gives the realistic tail.
+    tps = max(1.0, _lognorm(cfg["tps"], cfg["tps_cov"]))
+    prefill_ms = prompt_tokens / 1000.0 * cfg["prefill_ms_per_1k"]
+    ttft_ms = max(20.0, _lognorm(cfg["ttft_ms"], 0.45) + prefill_ms)
+    decode_ms = completion_tokens / tps * 1000.0
+    network_jitter = random.uniform(40, 160) if region != "us-east-1" else random.uniform(0, 30)
+    base_latency = ttft_ms + decode_ms + network_jitter
+
     adjusted_latency, adjusted_error_rate = _apply_anomaly(
-        model_name, client_name, base_latency + network_jitter, error_rate
-    )
-    latency_ms = round(adjusted_latency, 2)
-
-    # ── Latency phase breakdown ──────────────────────────────────────────
-    # Decompose total latency into queue_wait + model_inference + first_token
-    # + stream_response so traces can show where time was spent. Phases must
-    # sum to latency_ms exactly (inference bucket absorbs rounding residual).
-    streaming_request = cfg["supports_streaming"] and random.random() < 0.40
-    queue_wait_ms = round(max(0.0, random.gauss(latency_ms * 0.05, latency_ms * 0.02)), 2)
-    if streaming_request:
-        first_token_ms     = round(max(20.0, random.gauss(latency_ms * 0.20, latency_ms * 0.05)), 2)
-        stream_response_ms = round(max(0.0,  random.gauss(latency_ms * 0.35, latency_ms * 0.08)), 2)
-    else:
-        first_token_ms     = 0.0
-        stream_response_ms = 0.0
-    model_inference_ms = round(
-        max(0.0, latency_ms - queue_wait_ms - first_token_ms - stream_response_ms), 2,
+        model_name, client_name, base_latency, error_rate
     )
 
-    # ── SLA breach ───────────────────────────────────────────────────────
-    sla_target_ms = profile["p95_latency_ms"]
-    sla_breached = latency_ms > sla_target_ms
-
-    # ── Error simulation ─────────────────────────────────────────────────
+    # ── Error simulation (decided first — it reshapes latency & output) ──
     is_error = random.random() < adjusted_error_rate
     if is_error:
         # Rate-limit storm → bias toward 429
@@ -746,42 +882,70 @@ def generate_event(error_rate: float = 0.008) -> dict[str, Any]:
         stop_reason = None
         is_retried = err_info["retryable"] and random.random() < 0.40
         retry_count = random.randint(1, 3) if is_retried else 0
+
+        # Failed requests don't return a full response, and latency depends on
+        # the failure mode: timeouts hit the ceiling, client errors fail fast.
+        if error_type == "timeout":
+            latency_ms = round(_lognorm(32_000, 0.22), 2)
+            completion_tokens = _clamp_positive(completion_tokens * random.uniform(0.03, 0.25))
+        elif error_type in ("rate_limit", "auth_failure", "bad_request", "context_length"):
+            latency_ms = round(max(12.0, _lognorm(70, 0.6)), 2)   # rejected at the gateway
+            completion_tokens = 0
+        else:                                                     # 5xx — partial server work
+            latency_ms = round(max(50.0, min(adjusted_latency, _lognorm(1_400, 0.6))), 2)
+            completion_tokens = 0
     else:
         error_type = None
         err_info = {}
         status = "success"
         http_status_code = 200
-        stop_reason = random.choice(STOP_REASONS)
+        latency_ms = round(adjusted_latency, 2)
         is_retried = False
         retry_count = 0
+        # Mostly natural stops; occasional truncation / tool calls.
+        stop_reason = random.choices(STOP_REASONS, weights=[0.80, 0.10, 0.05, 0.05], k=1)[0]
+
+    total_tokens = prompt_tokens + completion_tokens + cache_read_tokens
+
+    # ── SLA breach (against realistic latency) ───────────────────────────
+    sla_target_ms = profile["p95_latency_ms"]
+    sla_breached = latency_ms > sla_target_ms
+
+    # ── Latency phase breakdown + streaming throughput ───────────────────
+    # Streaming only applies to successful responses on streaming-capable models.
+    streaming = cfg["supports_streaming"] and status == "success" and random.random() < 0.45
+    queue_wait_ms = round(max(0.0, _lognorm(40, 0.7)), 2)
+    if streaming:
+        first_token_ms     = round(max(20.0, ttft_ms - queue_wait_ms), 2)
+        stream_response_ms = round(max(1.0, latency_ms - queue_wait_ms - first_token_ms), 2)
+        model_inference_ms = stream_response_ms
+        tokens_per_second  = (
+            round(completion_tokens / (stream_response_ms / 1000.0), 2)
+            if completion_tokens > 0 else 0.0
+        )
+    else:
+        first_token_ms     = 0.0
+        stream_response_ms = 0.0
+        model_inference_ms = round(max(0.0, latency_ms - queue_wait_ms), 2)
+        tokens_per_second  = 0.0
 
     # ── Cost & budget tracking ───────────────────────────────────────────
-    cost_usd = calculate_cost(model_name, prompt_tokens, completion_tokens, cache_read_tokens)
-    cache_savings_usd = calculate_cache_savings(model_name, cache_read_tokens)
+    # Successful + server-side (5xx/timeout) calls bill for tokens processed;
+    # 4xx client errors are rejected before inference and aren't billed.
+    if status == "success" or error_type in ("timeout", "internal_error", "model_unavailable"):
+        cost_usd = calculate_cost(model_name, prompt_tokens, completion_tokens, cache_read_tokens)
+        cache_savings_usd = calculate_cache_savings(model_name, cache_read_tokens)
+    else:
+        cost_usd = 0.0
+        cache_savings_usd = 0.0
     _reset_daily_spend_if_needed()
     _daily_spend[client_name] += cost_usd
     budget_exhausted = _daily_spend[client_name] >= profile["daily_budget_usd"]
 
-    # ── Streaming + throughput ───────────────────────────────────────────
-    # streaming_request was computed above (latency phase section).
-    streaming = streaming_request
-    if streaming and stream_response_ms > 0 and completion_tokens > 0:
-        tokens_per_second = round(completion_tokens / (stream_response_ms / 1000.0), 2)
-    else:
-        tokens_per_second = 0.0
-
-    # ── User identity (stable within a session) ──────────────────────────
-    user_id = f"u-{hash(session_id) % profile['user_count']:05d}"
-    user_domain = {
-        "healthcare-portal": "health.org",
-        "legal-firm":        "legalco.net",
-        "ecommerce-brand":   "shop.io",
-        "financial-svc":     "finco.com",
-        "dev-agency":        "dev.io",
-        "internal-tools":    "acme.internal",
-        "data-science":      "ds.acme.com",
-    }[client_name]
-    user_email = f"{user_id}@{user_domain}"
+    # ── User identity (stable, recurring user drawn from the dept pool) ──
+    dept = profile["department"]
+    user_id = _user_for_session(client_name, session_id)
+    user_email = f"{user_id}@acme.com"
 
     event = {
         # ── Identity ─────────────────────────────────────────────────────
@@ -790,6 +954,9 @@ def generate_event(error_rate: float = 0.008) -> dict[str, Any]:
         "turn_number":       turn_number,
         "user_id":           user_id,
         "user_email":        user_email,
+        "organization":      ORGANIZATION,
+        "department":        dept,
+        "department_name":   profile["department_name"],
         "client_name":       client_name,
         "project_id":        f"proj-{client_name[:4]}-{abs(hash(session_id)) % 900 + 100}",
         "auth_method":       random.choice(AUTH_METHODS),
@@ -810,6 +977,7 @@ def generate_event(error_rate: float = 0.008) -> dict[str, Any]:
 
         # ── Performance ──────────────────────────────────────────────────
         "latency_ms":               latency_ms,
+        "session_time_ms":          session_time_ms,
         "queue_wait_ms":            queue_wait_ms,
         "model_inference_ms":       model_inference_ms,
         "first_token_ms":           first_token_ms,

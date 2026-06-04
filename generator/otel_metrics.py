@@ -104,6 +104,7 @@ _self_publish_errors: Any = _NoOpCounter()
 _self_queue_depth:    Any = _NoOpGauge()
 
 _SELF_METRIC_INSTRUMENTS: dict[str, Any] = {}
+_queue_depth_last: float = 0.0
 
 _initialized = False
 
@@ -264,19 +265,19 @@ def record_metrics(event: dict[str, Any]) -> None:
     """Record all five OTel instruments for one event dict.
 
     Labels are kept low-cardinality so Prometheus counters accumulate on a
-    bounded set of series. The ``tenant_id`` label is included because
-    tenant breakdown is a primary view in every Grafana dashboard; it has a
-    small fixed cardinality (= number of client profiles).
+    bounded set of series. ``department`` is the single org-segment label used
+    for dashboard filtering and breakdowns.
     """
     base: dict[str, Any] = {
-        "model_name":     event["model_name"],
-        "model_provider": event["model_provider"],
-        "operation_name": event["operation_name"],
-        "status":         event["status"],
-        "service":        _PROCESS_SERVICE,
-        "environment":    _PROCESS_ENVIRONMENT,
-        "region":         _PROCESS_REGION,
-        "tenant_id":      event.get("client_name", "unknown"),
+        "model_name":          event["model_name"],
+        "model_provider":      event["model_provider"],
+        "operation_name":      event["operation_name"],
+        "status":              event["status"],
+        "service":             _PROCESS_SERVICE,
+        "environment":         _PROCESS_ENVIRONMENT,
+        "region":              event.get("region", _PROCESS_REGION),
+        "department":          event.get("department", "unknown"),
+        "data_classification": event.get("data_classification", "unknown"),
     }
 
     try:
@@ -322,10 +323,10 @@ def record_self_metric(name: str, value: float, attrs: dict[str, str]) -> None:
         elif name == sc.METRIC_SELF_PUBLISH_ERRORS and instrument is not None:
             instrument.add(int(value), base)
         elif name == sc.METRIC_SELF_QUEUE_DEPTH and instrument is not None:
-            # UpDownCounter — emit a delta we'd ideally compute from the prior
-            # value; for now treat each call as a snapshot and add value.
-            # Prometheus exporter publishes this as a gauge in practice.
-            instrument.add(value, base)
+            global _queue_depth_last
+            delta = value - _queue_depth_last
+            instrument.add(delta, base)
+            _queue_depth_last = value
         else:
             logger.debug("self-metric %s not initialised — noop", name)
     except Exception as exc:

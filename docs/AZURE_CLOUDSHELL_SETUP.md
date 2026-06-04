@@ -183,7 +183,7 @@ chmod +x scripts/cloudshell-deploy.sh
 
 ### Command 14 — deploy full observability stack (~20–35 min first time)
 
-Deploys **everything end-to-end**: runner → OTLP/logs/traces/metrics → Loki/Tempo/Prometheus → Grafana (7 dashboards).
+Deploys **everything end-to-end**: runner → OTLP/logs/traces/metrics → Loki/Tempo/Prometheus → Grafana (9 dashboards).
 
 ```bash
 ./scripts/cloudshell-deploy.sh
@@ -196,7 +196,7 @@ This runs `cloudshell-setup-complete.sh` which:
 3. **Tempo** — trace store (OTLP traces from runner)
 4. **Prometheus scraper** — scrapes runner `/metrics` (sandbox mode, no Azure Managed Prometheus)
 5. **OTel Collector** — receives OTLP on port 4317, routes to Loki/Tempo/Prometheus
-6. **Grafana** — Prometheus + Loki + Tempo datasources wired, 7 dashboards pre-loaded
+6. **Grafana** — Prometheus + Loki + Tempo datasources wired, 9 dashboards pre-loaded (01–09)
 
 **Success:** ends with `Full observability stack is ready` and verify checks passing.
 

@@ -199,7 +199,8 @@ for ds in req("GET", "/api/datasources"):
 PY
 
 log "Re-importing dashboards (API sync; baked copies reload on every container start) ..."
-export GRAFANA_URL GRAFANA_ADMIN_PASSWORD
+export GRAFANA_URL GRAFANA_ADMIN_PASSWORD ENVIRONMENT="${ENVIRONMENT:-dev}"
+python3 "$ROOT/dashboards/generate_dashboards.py"
 python3 "$ROOT/scripts/setup_grafana_local.py" --dashboards-only || {
   log "WARN: dashboard API import failed — dashboards still load from image on restart after rebuild"
 }

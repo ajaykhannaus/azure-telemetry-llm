@@ -136,8 +136,12 @@ def log_event(event: dict[str, Any]) -> None:
             "session_id":          event.get("session_id"),
             "turn_number":         event.get("turn_number"),
             "user_id":             event.get("user_id"),
+            "user_email":          event.get("user_email"),
+            "organization":        event.get("organization"),
+            "department":          event.get("department"),
+            "department_name":     event.get("department_name"),
             "client_name":         event.get("client_name"),
-            "tenant_id":           event.get("client_name"),
+            "tenant_id":           event.get("department"),
             "data_classification": event.get("data_classification"),
 
             # ── Routing ──────────────────────────────────────────────────
@@ -150,6 +154,7 @@ def log_event(event: dict[str, Any]) -> None:
 
             # ── Performance ──────────────────────────────────────────────
             "latency_ms":          event.get("latency_ms"),
+            "session_time_ms":     event.get("session_time_ms"),
             "queue_wait_ms":       event.get("queue_wait_ms"),
             "model_inference_ms":  event.get("model_inference_ms"),
             "first_token_ms":      event.get("first_token_ms"),
@@ -202,10 +207,14 @@ def log_login_event(event: dict[str, Any]) -> None:
         "login_event",
         extra={
             "event_type":   "login_event",
+            "organization": event.get("organization"),
+            "department":   event.get("department"),
+            "department_name": event.get("department_name"),
+            "region":       event.get("region"),
             "user_id":      event.get("user_id"),
             "user_email":   event.get("user_email"),
             "session_id":   event.get("session_id"),
-            "tenant_id":    event.get("client_name"),
+            "tenant_id":    event.get("department"),
             "client_name":  event.get("client_name"),
             "auth_method":  event.get("auth_method"),
             "trace_id":     _current_trace_id() or event.get("trace_id"),

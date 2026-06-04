@@ -28,6 +28,7 @@ REQUIRED_FIELDS = {
     "model_provider",
     "timestamp_start",
     "latency_ms",
+    "session_time_ms",
     "prompt_tokens",
     "completion_tokens",
     "cache_read_tokens",
@@ -99,6 +100,27 @@ def test_budget_status_shape():
     assert set(status.keys()) == set(CLIENT_PROFILES.keys())
     for entry in status.values():
         assert {"spent_usd", "budget_usd", "pct"} <= set(entry.keys())
+
+
+def test_session_time_ms_is_user_engagement_not_api_latency():
+    """session_time_ms models wall-clock session time (≥4 min per session), not API latency."""
+    from generator.synthetic_generator import (
+        _MIN_SESSION_MS,
+        _session_meta,
+        _session_time_ms_for_turn,
+    )
+
+    sid = "test-session-duration"
+    max_turns = 4
+    _session_meta[sid] = {"target_ms": _MIN_SESSION_MS, "max_turns": max_turns}
+    total = sum(_session_time_ms_for_turn(sid, t) for t in range(1, max_turns + 1))
+    _session_meta.pop(sid)
+    assert total >= _MIN_SESSION_MS * 0.85
+
+    for _ in range(100):
+        ev = generate_event()
+        assert ev["session_time_ms"] >= 30_000
+        assert "session_time_ms" in ev
 
 
 def test_anomaly_state_machine_idempotent():

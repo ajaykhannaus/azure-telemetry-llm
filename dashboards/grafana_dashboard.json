@@ -775,7 +775,7 @@
       "targets": [
         {
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
-          "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"ai-gateway-ns\"})",
+          "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"ai-gateway-ns\"}) or vector(0)",
           "legendFormat": "Restarts",
           "refId": "A"
         }
@@ -1080,7 +1080,7 @@
       "targets": [
         {
           "datasource": {"type": "prometheus", "uid": "${datasource}"},
-          "expr": "increase(kube_pod_container_status_restarts_total{namespace=\"ai-gateway-ns\"}[5m])",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"ai-gateway-ns\"}[5m])) or on() label_replace(vector(0), \"pod\", \"none\", \"\", \"\")",
           "legendFormat": "{{pod}}",
           "refId": "A"
         }

@@ -1,0 +1,34 @@
+# Local Loki config — filesystem backend with higher query limits for dev dashboards.
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2020-10-24
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  # Default is 500; user-level panels with "All" departments exceed that locally.
+  max_query_series: 5000
+  max_query_parallelism: 32
+
+ruler:
+  alertmanager_url: http://localhost:9093

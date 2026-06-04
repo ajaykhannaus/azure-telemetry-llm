@@ -359,6 +359,11 @@ def _tick_body(tick: int) -> None:
             namespace=NAMESPACE, pod=pod, container="ai-gateway"
         ).inc(cpu_inc)
 
+        # Export 0 so Prometheus/Grafana always have a series before the first restart.
+        kube_pod_container_status_restarts_total.labels(
+            namespace=NAMESPACE, pod=pod, container="ai-gateway",
+        ).inc(0)
+
         if random.random() < 0.003:
             for reason in ("OOMKilled", "Error", "Completed"):
                 kube_pod_container_status_terminated_reason.labels(

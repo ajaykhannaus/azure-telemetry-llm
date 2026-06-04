@@ -248,7 +248,10 @@ Telemetry/
 │   ├── function_app.py          # Azure Functions v2 timer trigger (30 s)
 │   └── host.json
 ├── dashboards/
-│   └── grafana_dashboard.json   # Grafana dashboard (schema v39)
+│   ├── 01-executive-overview.json … 09-user-observability.json
+│   ├── generate_dashboards.py     # regenerate all 9 dashboards
+│   ├── metric_definitions.py      # panel tooltip text (ⓘ icons)
+│   └── grafana_dashboard.json     # legacy POC dashboard
 ├── infra/
 │   ├── bootstrap.sh             # one-command Azure resource provisioning
 │   └── containerapp.template.yaml  # Container App spec with probes + HA

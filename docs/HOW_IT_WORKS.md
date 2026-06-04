@@ -825,7 +825,7 @@ These run inside the `ai-telemetry-runner` container (or locally via `python3 -m
 |---|---|
 | **What it is** | Dashboard and exploration UI for metrics (Prometheus), traces (Tempo), and logs (Loki). |
 | **Why we use it** | Single pane of glass. Cross-signal correlation (metric exemplar → trace → logs) is the main reason to use Grafana over raw Prometheus UI. |
-| **How it's used here** | 7 dashboards in `dashboards/` (executive overview, traffic, latency, cost, model quality, PII safety, infra). Local: `docker-compose.observability.yml` on `:3000`. Production: Azure Managed Grafana, imported via CI (`deploy-grafana-dashboard` job). |
+| **How it's used here** | 9 dashboards in `dashboards/` (request & traffic, traffic analytics, latency, cost, model quality, safety, infra, token & context, user observability). Local: `docker-compose.observability.yml` on `:3000`. Production: Azure Managed Grafana, imported via CI (`deploy-grafana-dashboard` job). |
 | **You interact when…** | Building panels, importing dashboards, configuring datasources, or demoing to stakeholders. |
 
 **Dashboard map:**
