@@ -84,7 +84,10 @@ done
 | After `git pull` with script/infra changes | `./scripts/cloudshell-setup-complete.sh` |
 | Same as above (alias) | `./scripts/cloudshell-deploy.sh` |
 | Backend only (Loki/Tempo/Prom/Collector) | `./scripts/deploy-observability-stack.sh --build` |
-| Grafana only (refresh datasources) | `export FORCE_CONTAINER_DEPLOY=true && ./scripts/bootstrap-azure.sh --grafana-only` |
+| **Loki logs empty / Live Telemetry Events** | `./scripts/fix-loki-logs-azure.sh` |
+| Grafana only (refresh datasources) | `./scripts/fix-grafana-datasources.sh` |
+| Grafana image + dashboards rebuild | `./scripts/rebuild-grafana-azure.sh` |
+| Grafana only (legacy bootstrap path) | `export FORCE_CONTAINER_DEPLOY=true && ./scripts/bootstrap-azure.sh --grafana-only` |
 | Force full refresh (ignore “already healthy”) | `export FORCE_CONTAINER_DEPLOY=true && ./scripts/cloudshell-setup-complete.sh` |
 | Force rebuild all ACR images | `export FORCE_IMAGE_BUILD=true && ./scripts/cloudshell-setup-complete.sh` |
 
@@ -120,6 +123,10 @@ Run **`git pull` first**, then pick one:
 | Grafana ACR 401 / ImagePullBackOff | `./scripts/fix-grafana-acr.sh --force` |
 | Grafana still broken after ACR fix | `./scripts/fix-grafana-acr.sh --recreate` |
 | Runner 404 / no `/metrics` (40/40 polls) | `git pull` then `./scripts/fix-runner.sh --recreate --build` — see diagnostics at end |
+| **No Loki data / Live Telemetry Events empty** | `git pull` then `./scripts/fix-loki-logs-azure.sh` |
+| **Grafana Explore shows no logs** | Use LogQL below — not `{ } \|= ""` (empty query) |
+| **OTel Collector “not confirmed ready”** | Often a false alarm from Cloud Shell curl — check `runningStatus` below |
+| Duplicate dashboard nav buttons | `git pull` then `./scripts/rebuild-grafana-azure.sh` |
 | `ContainerAppOperationInProgress` | Close other tabs → wait 2 min → re-run fix script |
 | Stale probe errors | `git pull` then `./scripts/fix-grafana.sh` |
 
@@ -127,7 +134,118 @@ Then verify:
 
 ```bash
 ./scripts/verify-observability.sh
+./scripts/diagnose-grafana-azure.sh
 ```
+
+---
+
+## Loki logs & Live Telemetry Events
+
+Dashboard panels such as **Live Telemetry Events**, **Active users**, **Routing reason**, and **Cost per request** read from **Loki** (not Prometheus). If Prometheus panels have data but Loki panels are empty, fix the log pipeline.
+
+### One-command repair (recommended)
+
+```bash
+git pull
+chmod +x scripts/fix-loki-logs-azure.sh
+./scripts/fix-loki-logs-azure.sh
+```
+
+This script:
+
+1. Rebuilds **Loki** (OTLP-ready config) + **OTel Collector** (`otlphttp/loki` exporter)
+2. Rewires **runner OTLP** → collector
+3. Refreshes **Grafana** datasources + dashboards
+4. Runs **Loki diagnostics**
+
+Takes ~10–15 min (ACR builds). Wait **2–3 min** after it finishes for runner batches to appear in Loki.
+
+### Step-by-step (same as the script)
+
+```bash
+git pull
+export FORCE_CONTAINER_DEPLOY=true
+./scripts/deploy-observability-stack.sh --build --from loki
+./scripts/fix-runner.sh --no-git-pull
+python3 dashboards/generate_dashboards.py
+./scripts/fix-grafana-datasources.sh
+./scripts/diagnose-grafana-azure.sh
+```
+
+### Verify OTel Collector is Running
+
+Cloud Shell **cannot curl** internal apps — `WARN: OTel Collector not confirmed ready` during deploy is often a **false alarm**. Check Azure status instead:
+
+```bash
+export RG="az03-al-titan-sandbox-rg"
+export OTEL="otel-collector-dev"
+
+az containerapp show -n "$OTEL" -g "$RG" \
+  --query "{running:properties.runningStatus,prov:properties.provisioningState,revision:properties.latestRevisionName}" -o json
+```
+
+| Field | Good value |
+|---|---|
+| `running` | `Running` |
+| `prov` | `Succeeded` |
+
+If not Running:
+
+```bash
+az containerapp logs show -n "$OTEL" -g "$RG" --type console --tail 50
+```
+
+Look for `invalid OTel Collector config`, TLS errors to Loki, or missing env vars (`LOKI_OTLP_ENDPOINT`).
+
+### Verify runner OTLP env
+
+```bash
+export RUNNER="ai-telemetry-runner-dev"
+
+az containerapp show -n "$RUNNER" -g "$RG" \
+  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT' || name=='ALLOW_MOCK_MODE']" -o table
+```
+
+Expect `OTEL_EXPORTER_OTLP_ENDPOINT` = `http://otel-collector-dev.internal.<cae-domain>:4317` (not `localhost`).
+
+### Loki diagnostics (via Grafana proxy)
+
+```bash
+./scripts/diagnose-grafana-azure.sh
+```
+
+**Success:** `telemetry_event (15m):` **> 0**
+
+### Grafana Explore — correct LogQL
+
+Open **Explore → Loki → Code** (not the empty builder). Do **not** use `{ } |= ""`.
+
+```logql
+{service_name=~".+"} | json | event_type="telemetry_event"
+```
+
+- Time range: **Last 15 minutes** (turn **Live** off until data appears)
+- Dashboard filters: set all to **All** on Dashboard 2 when testing **Live Telemetry Events**
+
+### Hard refresh Grafana after deploy
+
+```bash
+GRAFANA_FQDN=$(az containerapp show -n "$GRAFANA" -g "$RG" \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+echo "https://${GRAFANA_FQDN}/d/ai-telemetry-traffic"
+```
+
+In the browser: **Ctrl+Shift+R** (hard refresh).
+
+### Loki / telemetry symptom table
+
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Explore `{ } \|= ""` → No data | Empty query | Use LogQL block above |
+| Prometheus OK, all Loki panels empty | Log pipeline not deployed or collector down | `./scripts/fix-loki-logs-azure.sh` |
+| `telemetry_event (15m): 0` in diagnose | Runner OTLP not wired or collector not Running | `./scripts/fix-runner.sh` then redeploy obs stack |
+| OTel deploy warns “not confirmed ready” | Old curl check from Cloud Shell | Check `runningStatus` — ignore if `Running` |
+| Duplicate dashboard link rows | Stale Grafana image | `./scripts/rebuild-grafana-azure.sh` |
 
 ---
 
@@ -396,10 +514,12 @@ flowchart TD
   B -->|fail runner| D[fix-runner.sh --build]
   B -->|fail grafana| E[fix-grafana.sh]
   B -->|fail loki/tempo/prom/otel| F[deploy-observability-stack.sh --build]
+  B -->|fail loki logs / Live Telemetry| I[fix-loki-logs-azure.sh]
   D --> G[verify-observability.sh]
   E --> G
-  F --> H[bootstrap-azure.sh --grafana-only]
+  F --> H[fix-grafana-datasources.sh]
   H --> G
+  I --> G
 ```
 
 **First run:** ~20–35 min (ACR builds runner/tempo/collector/prometheus images).
