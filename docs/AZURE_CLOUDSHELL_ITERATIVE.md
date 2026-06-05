@@ -176,7 +176,8 @@ git pull
 |---|---|
 | `Runner OTLP endpoint → collector` | `OTEL_EXPORTER_OTLP_ENDPOINT` = `http://otel-collector-dev.internal.<domain>:4317` |
 | `OTLP log exporter` in runner logs | Line like `OTLP log exporter → http://otel-collector-dev.internal...` |
-| `Collector Loki OTLP endpoint` | `LOKI_OTLP_ENDPOINT` = `https://loki-telemetry-dev.internal.<domain>/otlp` |
+| `Collector Loki OTLP endpoint` | `LOKI_OTLP_ENDPOINT` = `http://loki-telemetry-dev.internal.<domain>:3100/otlp` |
+| `Runner OTLP logs endpoint` | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` = `http://otel-collector-dev.internal.<domain>:4318` |
 | `loki image` | `acrtelemetrydevaj.azurecr.io/loki:latest` (not stock `grafana/loki:3.2.1`) |
 | Loki label names | Includes `service_name` |
 | Loki queries | `any service_name streams (15m):` **> 0**, then `telemetry_event (15m):` **> 0** |
