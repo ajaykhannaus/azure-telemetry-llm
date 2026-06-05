@@ -176,7 +176,7 @@ git pull
 |---|---|
 | `Runner OTLP endpoint → collector` | `OTEL_EXPORTER_OTLP_ENDPOINT` = `http://otel-collector-dev.internal.<domain>:4317` |
 | `OTLP log exporter` in runner logs | Line like `OTLP log exporter → http://otel-collector-dev.internal...` |
-| `Collector Loki OTLP endpoint` | `LOKI_OTLP_ENDPOINT` = `http://loki-telemetry-dev.internal.<domain>:3100/otlp` |
+| `Collector Loki OTLP endpoint` | `LOKI_OTLP_ENDPOINT` = `https://loki-telemetry-dev.internal.<domain>/otlp` |
 | `Runner OTLP logs endpoint` | `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` = `http://otel-collector-dev.internal.<domain>:4318` |
 | `loki image` | `acrtelemetrydevaj.azurecr.io/loki:latest` (not stock `grafana/loki:3.2.1`) |
 | Loki label names | Includes `service_name` |
@@ -230,7 +230,7 @@ az containerapp show -n "$LOKI" -g "$RG" \
 
 Expect:
 
-- `LOKI_OTLP_ENDPOINT` = `http://loki-telemetry-dev.internal.<domain>:3100/otlp` (plain HTTP on :3100, not HTTPS)
+- `LOKI_OTLP_ENDPOINT` = `https://loki-telemetry-dev.internal.<domain>/otlp` (internal HTTPS ingress; collector uses `tls.insecure: true`)
 - `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` = `http://otel-collector-dev.internal.<domain>:4318`
 - Loki image = `acrtelemetrydevaj.azurecr.io/loki:latest`
 

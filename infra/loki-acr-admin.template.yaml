@@ -9,10 +9,6 @@ properties:
       allowInsecure: false
       targetPort: 3100
       transport: auto
-      additionalPortMappings:
-        - targetPort: 3100
-          exposedPort: 3100
-          external: false
     registries:
       - server: __ACR_LOGIN_SERVER__
         username: __ACR_USERNAME__

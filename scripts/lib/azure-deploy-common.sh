@@ -41,14 +41,14 @@ resolve_azure_otel_logs_endpoint() {
   [[ -n "$env_ep" ]] && echo "$env_ep" || echo ""
 }
 
-# Loki native OTLP ingest — plain HTTP on :3100 (matches local docker-compose path).
+# Loki native OTLP ingest — HTTPS on internal ingress (ACA cannot duplicate targetPort 3100).
 resolve_azure_loki_otlp_endpoint() {
   local cae_name=$1 rg=$2 loki_app=${3:-loki-telemetry-dev}
   local domain
   domain=$(az containerapp env show --name "$cae_name" --resource-group "$rg" \
     --query properties.defaultDomain -o tsv 2>/dev/null || true)
   [[ -n "$domain" ]] || return 1
-  echo "http://${loki_app}.internal.${domain}:3100/otlp"
+  echo "https://${loki_app}.internal.${domain}/otlp"
 }
 
 acr_admin_credentials() {
