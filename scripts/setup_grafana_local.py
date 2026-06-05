@@ -322,7 +322,7 @@ def _patch_legacy_azure_panel(panel: dict[str, Any], loki_uid: str) -> None:
         panel["type"] = "timeseries"
         panel["targets"] = [{
             "datasource": loki_ds,
-            "expr": 'sum(count_over_time({service_name=~".+"} | json | line_format "{{.body}}" | json | event_type="telemetry_event" [1m]))',
+            "expr": 'sum(count_over_time({service_name=~".+"} | json | event_type="telemetry_event" [1m]))',
             "legendFormat": "events/min",
             "refId": "A",
         }]
