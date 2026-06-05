@@ -24,9 +24,9 @@ export FORCE_CONTAINER_DEPLOY=true
 log "Step 1/4 — Rebuild Loki (OTLP-ready) + OTel Collector (otlphttp/loki exporter)..."
 "$ROOT/scripts/deploy-observability-stack.sh" --build --from loki --no-git-pull
 
-log "Step 2/4 — Ensure runner OTLP endpoint points at collector..."
+log "Step 2/4 — Rebuild runner + wire OTLP (HTTP logs on :4318)..."
 "$ROOT/scripts/deploy-observability-stack.sh" --from otlp --no-git-pull || true
-"$ROOT/scripts/fix-runner.sh" --no-git-pull || true
+"$ROOT/scripts/fix-runner.sh" --build --no-git-pull || true
 
 # Force a new runner revision so OTLP log exporter reconnects after collector redeploy.
 set -a
@@ -37,12 +37,15 @@ CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
 OTEL_APP_NAME="${OTEL_APP_NAME:-otel-collector-dev}"
 APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
 OTEL_ENDPOINT="$(resolve_azure_otel_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$OTEL_APP_NAME")"
-log "Step 2b — Force runner OTLP env refresh: $OTEL_ENDPOINT"
+OTEL_LOGS_ENDPOINT="$(resolve_azure_otel_logs_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$OTEL_APP_NAME")"
+log "Step 2b — Force runner OTLP env refresh: $OTEL_ENDPOINT (logs: $OTEL_LOGS_ENDPOINT)"
 az containerapp update \
   --name "$APP_NAME" \
   --resource-group "$AZURE_RESOURCE_GROUP" \
   --set-env-vars \
     "OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT}" \
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_LOGS_ENDPOINT}" \
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf" \
     "OTEL_EXPORTER_OTLP_INSECURE=true" \
   --output none
 

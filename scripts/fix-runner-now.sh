@@ -78,6 +78,7 @@ acr_admin_credentials "$ACR_NAME"
 eh_conn="$(awk_escape "$EVENTHUB_CONNECTION_STRING")"
 eh_name="${EVENTHUB_NAME:-ai-telemetry-events}"
 otel_ep="$(awk_escape "$(resolve_azure_otel_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$OTEL_APP_NAME")")"
+otel_logs_ep="$(awk_escape "$(resolve_azure_otel_logs_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$OTEL_APP_NAME")")"
 user="$(awk_escape "$ACR_ADMIN_USER")"
 pass="$(awk_escape "$ACR_ADMIN_PASS")"
 
@@ -92,6 +93,7 @@ awk -v loc="$AZURE_LOCATION" \
     -v eh_conn="$eh_conn" \
     -v eh_name="$eh_name" \
     -v otel_ep="$otel_ep" \
+    -v otel_logs_ep="$otel_logs_ep" \
     '{
       gsub(/__LOCATION__/, loc)
       gsub(/__MANAGED_ENV_ID__/, env_id)
@@ -103,6 +105,7 @@ awk -v loc="$AZURE_LOCATION" \
       gsub(/__EVENTHUB_CONNECTION_STRING__/, eh_conn)
       gsub(/__EVENTHUB_NAME__/, eh_name)
       gsub(/__OTEL_ENDPOINT__/, otel_ep)
+      gsub(/__OTEL_LOGS_ENDPOINT__/, otel_logs_ep)
       print
     }' "$ROOT/infra/runner-acr-admin.template.yaml" > "$rendered"
 

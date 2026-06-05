@@ -37,14 +37,15 @@ log "Runner FQDN: $(az containerapp show --name "$APP_NAME" --resource-group "$A
 
 CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
 EXPECTED_OTEL="http://${OTEL_APP_NAME}.internal.$(cae_default_domain "$CAE_NAME" "$AZURE_RESOURCE_GROUP")"
-EXPECTED_LOKI_OTLP="https://${LOKI_APP_NAME}.internal.$(cae_default_domain "$CAE_NAME" "$AZURE_RESOURCE_GROUP")/otlp"
+EXPECTED_LOKI_OTLP="$(resolve_azure_loki_otlp_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$LOKI_APP_NAME" 2>/dev/null || echo "")"
+EXPECTED_OTEL_LOGS="$(resolve_azure_otel_logs_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$OTEL_APP_NAME")"
 
 echo ""
 log "=== Runner OTLP env (logs need this → OTel Collector → Loki) ==="
 RUNNER_OTEL=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
   --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT'].value | [0]" -o tsv 2>/dev/null || true)
 az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT' || name=='ALLOW_MOCK_MODE' || name=='OTEL_SERVICE_NAME']" -o table 2>/dev/null \
+  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT' || name=='OTEL_EXPORTER_OTLP_LOGS_ENDPOINT' || name=='ALLOW_MOCK_MODE' || name=='OTEL_SERVICE_NAME']" -o table 2>/dev/null \
   || fail "Could not read runner env"
 if [[ -z "$RUNNER_OTEL" || "$RUNNER_OTEL" == *localhost* || "$RUNNER_OTEL" == *127.0.0.1* ]]; then
   fail "Runner OTEL_EXPORTER_OTLP_ENDPOINT missing or points at localhost"
@@ -56,6 +57,18 @@ elif [[ "$RUNNER_OTEL" != "${EXPECTED_OTEL}:4317" ]]; then
   log "  Expected: ${EXPECTED_OTEL}:4317"
 else
   ok "Runner OTLP endpoint → collector"
+fi
+RUNNER_OTEL_LOGS=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_LOGS_ENDPOINT'].value | [0]" -o tsv 2>/dev/null || true)
+if [[ -z "$RUNNER_OTEL_LOGS" ]]; then
+  fail "Runner OTEL_EXPORTER_OTLP_LOGS_ENDPOINT not set — logs may fail on ACA gRPC ingress"
+  log "  Expected: $EXPECTED_OTEL_LOGS"
+elif [[ "$RUNNER_OTEL_LOGS" != "$EXPECTED_OTEL_LOGS" ]]; then
+  fail "Runner OTLP logs endpoint mismatch"
+  log "  Got:      $RUNNER_OTEL_LOGS"
+  log "  Expected: $EXPECTED_OTEL_LOGS"
+else
+  ok "Runner OTLP logs endpoint → collector :4318 (HTTP)"
 fi
 
 echo ""

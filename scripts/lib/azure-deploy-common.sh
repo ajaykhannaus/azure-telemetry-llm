@@ -9,7 +9,7 @@ awk_escape() {
   printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/&/\\&/g'
 }
 
-# OTLP endpoint for Container Apps (never localhost on Azure).
+# OTLP gRPC endpoint for Container Apps (never localhost on Azure).
 resolve_azure_otel_endpoint() {
   local cae_name=$1 rg=$2 otel_app=${3:-otel-collector-dev}
   local env_ep=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
@@ -23,6 +23,32 @@ resolve_azure_otel_endpoint() {
     fi
   fi
   [[ -n "$env_ep" ]] && echo "$env_ep" || echo ""
+}
+
+# OTLP HTTP endpoint for logs (port 4318 — more reliable than gRPC on ACA internal ingress).
+resolve_azure_otel_logs_endpoint() {
+  local cae_name=$1 rg=$2 otel_app=${3:-otel-collector-dev}
+  local env_ep=${OTEL_EXPORTER_OTLP_LOGS_ENDPOINT:-}
+  if [[ -z "$env_ep" || "$env_ep" == *localhost* || "$env_ep" == *127.0.0.1* ]]; then
+    local domain
+    domain=$(az containerapp env show --name "$cae_name" --resource-group "$rg" \
+      --query properties.defaultDomain -o tsv 2>/dev/null || true)
+    if [[ -n "$domain" ]]; then
+      echo "http://${otel_app}.internal.${domain}:4318"
+      return 0
+    fi
+  fi
+  [[ -n "$env_ep" ]] && echo "$env_ep" || echo ""
+}
+
+# Loki native OTLP ingest — plain HTTP on :3100 (matches local docker-compose path).
+resolve_azure_loki_otlp_endpoint() {
+  local cae_name=$1 rg=$2 loki_app=${3:-loki-telemetry-dev}
+  local domain
+  domain=$(az containerapp env show --name "$cae_name" --resource-group "$rg" \
+    --query properties.defaultDomain -o tsv 2>/dev/null || true)
+  [[ -n "$domain" ]] || return 1
+  echo "http://${loki_app}.internal.${domain}:3100/otlp"
 }
 
 acr_admin_credentials() {

@@ -229,7 +229,8 @@ az containerapp show -n "$LOKI" -g "$RG" \
 
 Expect:
 
-- `LOKI_OTLP_ENDPOINT` = `https://loki-telemetry-dev.internal.<domain>/otlp`
+- `LOKI_OTLP_ENDPOINT` = `http://loki-telemetry-dev.internal.<domain>:3100/otlp` (plain HTTP on :3100, not HTTPS)
+- `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` = `http://otel-collector-dev.internal.<domain>:4318`
 - Loki image = `acrtelemetrydevaj.azurecr.io/loki:latest`
 
 If `LOKI_OTLP_ENDPOINT` is unset or Loki uses `grafana/loki:*`:
@@ -257,7 +258,9 @@ OTEL_EP="http://otel-collector-dev.internal.${CAE_DOMAIN}:4317"
 
 az containerapp update -n "$RUNNER" -g "$RG" \
   --set-env-vars \
-    "OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EP}" \
+    "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector-dev.internal.${CAE_DOMAIN}:4317" \
+    "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://otel-collector-dev.internal.${CAE_DOMAIN}:4318" \
+    "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf" \
     "OTEL_EXPORTER_OTLP_INSECURE=true" \
   --output none
 ```

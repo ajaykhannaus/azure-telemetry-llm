@@ -25,11 +25,24 @@ except ImportError:
     logger.warning("opentelemetry-sdk logs API not available")
 
 try:
-    from opentelemetry.exporter.otlp.proto.grpc._log_exporter import OTLPLogExporter
+    from opentelemetry.exporter.otlp.proto.grpc._log_exporter import (
+        OTLPLogExporter as OTLPGrpcLogExporter,
+    )
 
-    _OTLP_LOGS_AVAILABLE = True
+    _OTLP_GRPC_LOGS_AVAILABLE = True
 except ImportError:
-    _OTLP_LOGS_AVAILABLE = False
+    _OTLP_GRPC_LOGS_AVAILABLE = False
+
+try:
+    from opentelemetry.exporter.otlp.proto.http._log_exporter import (
+        OTLPLogExporter as OTLPHttpLogExporter,
+    )
+
+    _OTLP_HTTP_LOGS_AVAILABLE = True
+except ImportError:
+    _OTLP_HTTP_LOGS_AVAILABLE = False
+
+_OTLP_LOGS_AVAILABLE = _OTLP_GRPC_LOGS_AVAILABLE or _OTLP_HTTP_LOGS_AVAILABLE
 
 _INITIALISED = False
 _OTEL_LOGGER: Any = None
@@ -41,6 +54,13 @@ _LEVEL_TO_SEVERITY = {
     logging.ERROR: SeverityNumber.ERROR,
     logging.CRITICAL: SeverityNumber.FATAL,
 }
+
+
+def _normalize_http_logs_endpoint(endpoint: str) -> str:
+    endpoint = endpoint.rstrip("/")
+    if endpoint.endswith("/v1/logs"):
+        return endpoint
+    return f"{endpoint}/v1/logs"
 
 
 class _OTLPJSONHandler(logging.Handler):
@@ -88,23 +108,40 @@ def setup_otel_logging(json_formatter: logging.Formatter | None = None) -> None:
     set_logger_provider(provider)
     _OTEL_LOGGER = get_logger("generator.telemetry")
 
-    otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+    otlp_endpoint = (
+        os.getenv("OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", "").strip()
+        or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+    )
     if not otlp_endpoint:
         logger.error(
             "OTEL_EXPORTER_OTLP_ENDPOINT is not set — telemetry_event logs will NOT reach Loki. "
-            "Set it to the OTel Collector URL (e.g. http://otel-collector-dev.internal.<domain>:4317)."
+            "Set it to the OTel Collector URL (e.g. http://otel-collector-dev.internal.<domain>:4318)."
         )
         return
     if otlp_endpoint and _OTLP_LOGS_AVAILABLE:
         try:
-            insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "true").lower() == "true"
-            exporter = OTLPLogExporter(endpoint=otlp_endpoint, insecure=insecure)
+            logs_protocol = os.getenv(
+                "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL",
+                os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc"),
+            ).lower()
+            use_http = logs_protocol in ("http/protobuf", "http/json") or ":4318" in otlp_endpoint
+            if use_http and _OTLP_HTTP_LOGS_AVAILABLE:
+                exporter = OTLPHttpLogExporter(
+                    endpoint=_normalize_http_logs_endpoint(otlp_endpoint),
+                )
+                transport = "http/protobuf"
+            elif _OTLP_GRPC_LOGS_AVAILABLE:
+                insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "true").lower() == "true"
+                exporter = OTLPGrpcLogExporter(endpoint=otlp_endpoint, insecure=insecure)
+                transport = f"grpc (insecure={insecure})"
+            else:
+                raise RuntimeError("no OTLP log exporter available for configured protocol")
             provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
             handler = _OTLPJSONHandler()
             if json_formatter is not None:
                 handler.setFormatter(json_formatter)
             logging.getLogger().addHandler(handler)
-            logger.info("OTLP log exporter → %s (insecure=%s)", otlp_endpoint, insecure)
+            logger.info("OTLP log exporter → %s (%s)", otlp_endpoint, transport)
         except Exception as exc:
             logger.warning("OTLP log exporter init failed: %s", exc)
     elif otlp_endpoint:

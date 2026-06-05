@@ -62,6 +62,11 @@ exporters:
     endpoint: __LOKI_OTLP_ENDPOINT__
     tls:
       insecure: true
+    timeout: 30s
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 10s
 
 extensions:
   health_check:

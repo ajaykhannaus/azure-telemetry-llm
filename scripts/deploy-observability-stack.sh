@@ -351,7 +351,7 @@ if step_enabled otel; then
     build_if_needed "otel-collector:latest" "$ROOT/Dockerfile.collector"
 
     TEMPO_EP="http://$(internal_host "$TEMPO_APP_NAME"):4317"
-    LOKI_OTLP_EP="https://$(internal_host "$LOKI_APP_NAME")/otlp"
+    LOKI_OTLP_EP="$(resolve_azure_loki_otlp_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$LOKI_APP_NAME")"
     PROM_EP="https://$(internal_host "$PROM_APP_NAME")/api/v1/write"
 
     otel_yaml="$ROOT/infra/otel.rendered.yaml"
@@ -401,12 +401,16 @@ fi
 if step_enabled otlp && [[ "$SKIP_RUNNER_OTLP" != "true" ]]; then
   log "=== Runner OTLP wiring ==="
   OTEL_ENDPOINT="http://$(internal_host "$OTEL_APP_NAME"):4317"
+  OTEL_LOGS_ENDPOINT="$(resolve_azure_otel_logs_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$OTEL_APP_NAME")"
   log "Setting OTEL_EXPORTER_OTLP_ENDPOINT=$OTEL_ENDPOINT on $APP_NAME"
+  log "Setting OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=$OTEL_LOGS_ENDPOINT (HTTP :4318)"
   az containerapp update \
     --name "$APP_NAME" \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --set-env-vars \
       "OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT}" \
+      "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=${OTEL_LOGS_ENDPOINT}" \
+      "OTEL_EXPORTER_OTLP_LOGS_PROTOCOL=http/protobuf" \
       "OTEL_EXPORTER_OTLP_INSECURE=true" \
     --output none
 fi

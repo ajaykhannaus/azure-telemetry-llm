@@ -54,6 +54,10 @@ properties:
             value: "plain"
           - name: OTEL_EXPORTER_OTLP_ENDPOINT
             value: __OTEL_ENDPOINT__
+          - name: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
+            value: __OTEL_LOGS_ENDPOINT__
+          - name: OTEL_EXPORTER_OTLP_LOGS_PROTOCOL
+            value: "http/protobuf"
           - name: OTEL_EXPORTER_OTLP_INSECURE
             value: "true"
         probes:
