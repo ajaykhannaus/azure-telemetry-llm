@@ -35,11 +35,53 @@ log "Grafana: $GRAFANA_URL"
 log "Runner FQDN: $(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
   --query "properties.configuration.ingress.fqdn" -o tsv)"
 
+CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
+EXPECTED_OTEL="http://${OTEL_APP_NAME}.internal.$(cae_default_domain "$CAE_NAME" "$AZURE_RESOURCE_GROUP")"
+EXPECTED_LOKI_OTLP="https://${LOKI_APP_NAME}.internal.$(cae_default_domain "$CAE_NAME" "$AZURE_RESOURCE_GROUP")/otlp"
+
 echo ""
 log "=== Runner OTLP env (logs need this → OTel Collector → Loki) ==="
+RUNNER_OTEL=$(az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT'].value | [0]" -o tsv 2>/dev/null || true)
 az containerapp show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT' || name=='ALLOW_MOCK_MODE']" -o table 2>/dev/null \
+  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT' || name=='ALLOW_MOCK_MODE' || name=='OTEL_SERVICE_NAME']" -o table 2>/dev/null \
   || fail "Could not read runner env"
+if [[ -z "$RUNNER_OTEL" || "$RUNNER_OTEL" == *localhost* || "$RUNNER_OTEL" == *127.0.0.1* ]]; then
+  fail "Runner OTEL_EXPORTER_OTLP_ENDPOINT missing or points at localhost"
+  log "  Expected: ${EXPECTED_OTEL}:4317"
+  log "  Fix: ./scripts/fix-runner.sh --no-git-pull"
+elif [[ "$RUNNER_OTEL" != "${EXPECTED_OTEL}:4317" ]]; then
+  fail "Runner OTLP endpoint does not match collector internal URL"
+  log "  Got:      $RUNNER_OTEL"
+  log "  Expected: ${EXPECTED_OTEL}:4317"
+else
+  ok "Runner OTLP endpoint → collector"
+fi
+
+echo ""
+log "=== OTel Collector → Loki wiring ==="
+COLLECTOR_LOKI=$(az containerapp show --name "$OTEL_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+  --query "properties.template.containers[0].env[?name=='LOKI_OTLP_ENDPOINT'].value | [0]" -o tsv 2>/dev/null || true)
+COLLECTOR_IMAGE=$(az containerapp show --name "$OTEL_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+  --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
+LOKI_IMAGE=$(az containerapp show --name "$LOKI_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+  --query "properties.template.containers[0].image" -o tsv 2>/dev/null || true)
+log "  collector image: ${COLLECTOR_IMAGE:-unknown}"
+log "  loki image:      ${LOKI_IMAGE:-unknown}"
+log "  LOKI_OTLP_ENDPOINT: ${COLLECTOR_LOKI:-<unset>}"
+log "  expected:           $EXPECTED_LOKI_OTLP"
+if [[ -z "$COLLECTOR_LOKI" ]]; then
+  fail "Collector LOKI_OTLP_ENDPOINT not set — logs pipeline cannot export to Loki"
+  log "  Fix: export FORCE_CONTAINER_DEPLOY=true && ./scripts/deploy-observability-stack.sh --build --from otel"
+elif [[ "$COLLECTOR_LOKI" != "$EXPECTED_LOKI_OTLP" ]]; then
+  fail "Collector LOKI_OTLP_ENDPOINT mismatch"
+else
+  ok "Collector Loki OTLP endpoint"
+fi
+if [[ -n "$LOKI_IMAGE" && "$LOKI_IMAGE" == grafana/loki:* ]]; then
+  fail "Loki is using stock grafana/loki image (no baked OTLP config) — rebuild with Dockerfile.loki"
+  log "  Fix: ./scripts/fix-loki-logs-azure.sh"
+fi
 
 echo ""
 log "=== Observability apps ==="
@@ -48,12 +90,37 @@ for app in "$LOKI_APP_NAME" "$OTEL_APP_NAME"; do
     --query "{running:properties.runningStatus,prov:properties.provisioningState,replicas:properties.template.scale.minReplicas}" -o json 2>/dev/null \
     || echo '{"error":"missing"}')
   log "  $app: $state"
-  if [[ "$app" == "$OTEL_APP_NAME" && "$(echo "$state" | python3 -c "import sys,json; s=json.load(sys.stdin); print(s.get('running',''))" 2>/dev/null || echo "")" != "Running" ]]; then
-    log "  OTel Collector logs (last 20 lines):"
-    az containerapp logs show --name "$OTEL_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
-      --tail 20 2>/dev/null | tail -20 || true
-  fi
 done
+
+echo ""
+log "=== Runner console — OTLP log exporter (last 80 lines) ==="
+RUNNER_LOGS=$(az containerapp logs show --name "$APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+  --type console --tail 80 2>/dev/null || true)
+if echo "$RUNNER_LOGS" | grep -q "OTLP log exporter"; then
+  ok "Runner initialized OTLP log exporter"
+  echo "$RUNNER_LOGS" | grep "OTLP log exporter" | tail -1 | sed 's/^/[diagnose-grafana]   /'
+elif echo "$RUNNER_LOGS" | grep -qi "OTEL_EXPORTER_OTLP_ENDPOINT is not set"; then
+  fail "Runner started without OTLP endpoint — logs will not leave the runner"
+elif echo "$RUNNER_LOGS" | grep -qi "OTLP log exporter init failed"; then
+  fail "Runner OTLP log exporter failed to initialize"
+  echo "$RUNNER_LOGS" | grep -i "OTLP log exporter" | tail -3 | sed 's/^/[diagnose-grafana]   /'
+else
+  fail "No 'OTLP log exporter' line in runner logs — runner may need redeploy"
+  log "  Fix: ./scripts/fix-runner.sh --build --no-git-pull"
+fi
+
+echo ""
+log "=== OTel Collector console — Loki export errors (last 80 lines) ==="
+COLLECTOR_LOGS=$(az containerapp logs show --name "$OTEL_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+  --type console --tail 80 2>/dev/null || true)
+if echo "$COLLECTOR_LOGS" | grep -Eiq 'error|failed|refused|404|401|tls|handshake'; then
+  echo "$COLLECTOR_LOGS" | grep -Ei 'error|failed|refused|404|401|tls|handshake|loki|otlphttp' | tail -8 | sed 's/^/[diagnose-grafana]   /'
+else
+  log "  (no obvious export errors in recent collector logs)"
+fi
+if echo "$COLLECTOR_LOGS" | grep -q "invalid OTel Collector config"; then
+  fail "Collector config validation failed on last start"
+fi
 
 python3 - "$GRAFANA_URL" "$GRAFANA_ADMIN_PASSWORD" <<'PY'
 import base64
@@ -112,12 +179,26 @@ for label, promql in queries:
     except Exception as exc:
         print(f"  {label}: ERROR {exc}")
 
+print("\n=== Loki label names (via Grafana → Loki) ===")
+try:
+    labels = req("GET", "/api/datasources/proxy/uid/loki-ds/loki/api/v1/labels")
+    names = labels.get("data") or []
+    print(f"  labels ({len(names)}): {', '.join(names[:20])}{'...' if len(names) > 20 else ''}")
+    if names and "service_name" not in names:
+        print("    WARN: no service_name label — OTLP logs may not be ingested yet")
+except Exception as exc:
+    print(f"  ERROR listing labels: {exc}")
+
 print("\n=== Loki queries (Live Telemetry Events panel) ===")
 loki_queries = [
-    ("any logs (15m)", 'sum(count_over_time({service_name=~".+"} [15m]))'),
+    ("any service_name streams (15m)", 'sum(count_over_time({service_name=~".+"} [15m]))'),
     (
         "telemetry_event (15m)",
         'sum(count_over_time({service_name=~".+"} | json | event_type="telemetry_event" [15m]))',
+    ),
+    (
+        "startup_config (15m)",
+        'sum(count_over_time({service_name=~".+"} | json | event_type="startup_config" [15m]))',
     ),
 ]
 for label, logql in loki_queries:
@@ -149,9 +230,11 @@ for label, logql in loki_queries:
                         except (TypeError, ValueError):
                             pass
         print(f"  {label}: {int(total)}")
-        if total == 0:
-            print("    WARN: no Loki logs — runner OTLP or OTel Collector → Loki export is broken")
-            print("    Fix: ./scripts/deploy-observability-stack.sh --build --from otel")
+        if total == 0 and label == "any service_name streams (15m)":
+            print("    WARN: no Loki streams — runner → collector → Loki pipeline is broken")
+            print("    Fix: ./scripts/fix-loki-logs-azure.sh")
+        elif total == 0 and "telemetry_event" in label:
+            print("    WARN: logs exist in Loki but no telemetry_event — check runner batches / LogQL")
     except Exception as exc:
         print(f"  {label}: ERROR {exc}")
 
@@ -160,7 +243,7 @@ for d in req("GET", "/api/search?type=dash-db"):
     print(f"  {d.get('title')} uid={d.get('uid')} url={d.get('url')}")
 PY
 
-log "If Prometheus queries show 0 points, check scraper SCRAPE_TARGET on $PROM_APP_NAME"
-log "If Loki telemetry_event is 0, redeploy OTel Collector (TLS fix for Loki export):"
-log "  ./scripts/deploy-observability-stack.sh --build --from otel"
+log "If Prometheus OK but Loki empty: ./scripts/fix-loki-logs-azure.sh"
+log "If runner missing OTLP log exporter line: ./scripts/fix-runner.sh --build --no-git-pull"
+log "If collector LOKI_OTLP_ENDPOINT wrong: export FORCE_CONTAINER_DEPLOY=true && ./scripts/deploy-observability-stack.sh --build --from otel"
 log "If dashboards missing, run: ./scripts/fix-grafana-datasources.sh"

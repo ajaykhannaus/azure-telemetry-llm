@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+# shellcheck source=lib/azure-deploy-common.sh
+source "$ROOT/scripts/lib/azure-deploy-common.sh"
 ENV_FILE="${ENV_FILE:-$ROOT/.env.azure}"
 
 log() { echo "[fix-loki-logs] $*"; }
@@ -23,7 +25,26 @@ log "Step 1/4 — Rebuild Loki (OTLP-ready) + OTel Collector (otlphttp/loki expo
 "$ROOT/scripts/deploy-observability-stack.sh" --build --from loki --no-git-pull
 
 log "Step 2/4 — Ensure runner OTLP endpoint points at collector..."
-"$ROOT/scripts/fix-runner.sh" --no-git-pull
+"$ROOT/scripts/deploy-observability-stack.sh" --from otlp --no-git-pull || true
+"$ROOT/scripts/fix-runner.sh" --no-git-pull || true
+
+# Force a new runner revision so OTLP log exporter reconnects after collector redeploy.
+set -a
+# shellcheck disable=SC1090
+source "$ENV_FILE"
+set +a
+CAE_NAME="${CAE_NAME:-cae-telemetry-dev}"
+OTEL_APP_NAME="${OTEL_APP_NAME:-otel-collector-dev}"
+APP_NAME="${APP_NAME:-ai-telemetry-runner-dev}"
+OTEL_ENDPOINT="$(resolve_azure_otel_endpoint "$CAE_NAME" "$AZURE_RESOURCE_GROUP" "$OTEL_APP_NAME")"
+log "Step 2b — Force runner OTLP env refresh: $OTEL_ENDPOINT"
+az containerapp update \
+  --name "$APP_NAME" \
+  --resource-group "$AZURE_RESOURCE_GROUP" \
+  --set-env-vars \
+    "OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_ENDPOINT}" \
+    "OTEL_EXPORTER_OTLP_INSECURE=true" \
+  --output none
 
 log "Step 3/4 — Refresh Grafana datasources + dashboards..."
 python3 "$ROOT/dashboards/generate_dashboards.py"
