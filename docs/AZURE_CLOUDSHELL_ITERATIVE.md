@@ -123,7 +123,8 @@ Run **`git pull` first**, then pick one:
 | Grafana ACR 401 / ImagePullBackOff | `./scripts/fix-grafana-acr.sh --force` |
 | Grafana still broken after ACR fix | `./scripts/fix-grafana-acr.sh --recreate` |
 | Runner 404 / no `/metrics` (40/40 polls) | `git pull` then `./scripts/fix-runner.sh --recreate --build` — see diagnostics at end |
-| **No Loki data / Live Telemetry Events empty** | `git pull` then `./scripts/fix-loki-logs-azure.sh` |
+| **No Loki data / Live Telemetry Events empty** | `git pull` then `./scripts/diagnose-grafana-azure.sh` → `./scripts/fix-loki-logs-azure.sh` |
+| **OTel Running, Loki diagnose still 0** | Manual checks in [Loki logs section](#manual-checks-when-diagnose-shows-0-loki-logs) |
 | **Grafana Explore shows no logs** | Use LogQL below — not `{ } \|= ""` (empty query) |
 | **OTel Collector “not confirmed ready”** | Often a false alarm from Cloud Shell curl — check `runningStatus` below |
 | Duplicate dashboard nav buttons | `git pull` then `./scripts/rebuild-grafana-azure.sh` |
@@ -134,7 +135,7 @@ Then verify:
 
 ```bash
 ./scripts/verify-observability.sh
-./scripts/diagnose-grafana-azure.sh
+./scripts/diagnose-grafana-azure.sh   # Loki: any service_name streams + telemetry_event counts
 ```
 
 ---
@@ -154,11 +155,114 @@ chmod +x scripts/fix-loki-logs-azure.sh
 This script:
 
 1. Rebuilds **Loki** (OTLP-ready config) + **OTel Collector** (`otlphttp/loki` exporter)
-2. Rewires **runner OTLP** → collector
+2. Rewires **runner OTLP** → collector and **forces a new runner revision**
 3. Refreshes **Grafana** datasources + dashboards
 4. Runs **Loki diagnostics**
 
 Takes ~10–15 min (ACR builds). Wait **2–3 min** after it finishes for runner batches to appear in Loki.
+
+### Diagnose first (collector Running but Loki empty)
+
+Prometheus panels can have data while Loki is empty — that means the **log pipeline** is broken, not Grafana.
+
+```bash
+git pull
+./scripts/diagnose-grafana-azure.sh
+```
+
+**What the script checks:**
+
+| Section | Good sign |
+|---|---|
+| `Runner OTLP endpoint → collector` | `OTEL_EXPORTER_OTLP_ENDPOINT` = `http://otel-collector-dev.internal.<domain>:4317` |
+| `OTLP log exporter` in runner logs | Line like `OTLP log exporter → http://otel-collector-dev.internal...` |
+| `Collector Loki OTLP endpoint` | `LOKI_OTLP_ENDPOINT` = `https://loki-telemetry-dev.internal.<domain>/otlp` |
+| `loki image` | `acrtelemetrydevaj.azurecr.io/loki:latest` (not stock `grafana/loki:3.2.1`) |
+| Loki label names | Includes `service_name` |
+| Loki queries | `any service_name streams (15m):` **> 0**, then `telemetry_event (15m):` **> 0** |
+
+**Failure:** `any service_name streams (15m): 0` → nothing reached Loki. Run `./scripts/fix-loki-logs-azure.sh`.
+
+**Partial failure:** streams **> 0** but `telemetry_event (15m): 0` → logs arrive but runner batches may not be emitting; check runner is Running and `ALLOW_MOCK_MODE=true`.
+
+### Manual checks (when diagnose shows 0 Loki logs)
+
+Use these in a **second tab** while `fix-loki-logs-azure.sh` runs, or after repair if counts are still 0.
+
+**Runner OTLP env (must not be localhost):**
+
+```bash
+export RG="az03-al-titan-sandbox-rg"
+export RUNNER="ai-telemetry-runner-dev"
+
+az containerapp show -n "$RUNNER" -g "$RG" \
+  --query "properties.template.containers[0].env[?name=='OTEL_EXPORTER_OTLP_ENDPOINT' || name=='ALLOW_MOCK_MODE' || name=='OTEL_SERVICE_NAME']" -o table
+```
+
+**Runner started OTLP log export:**
+
+```bash
+az containerapp logs show -n "$RUNNER" -g "$RG" --type console --tail 50 \
+  | grep -i "OTLP log exporter"
+```
+
+Expect: `OTLP log exporter → http://otel-collector-dev.internal.<domain>:4317`
+
+If missing:
+
+```bash
+./scripts/fix-runner.sh --build --no-git-pull
+```
+
+**Collector → Loki wiring:**
+
+```bash
+export OTEL="otel-collector-dev"
+export LOKI="loki-telemetry-dev"
+
+az containerapp show -n "$OTEL" -g "$RG" \
+  --query "properties.template.containers[0].env[?name=='LOKI_OTLP_ENDPOINT' || name=='TEMPO_ENDPOINT']" -o table
+
+az containerapp show -n "$LOKI" -g "$RG" \
+  --query "properties.template.containers[0].image" -o tsv
+```
+
+Expect:
+
+- `LOKI_OTLP_ENDPOINT` = `https://loki-telemetry-dev.internal.<domain>/otlp`
+- Loki image = `acrtelemetrydevaj.azurecr.io/loki:latest`
+
+If `LOKI_OTLP_ENDPOINT` is unset or Loki uses `grafana/loki:*`:
+
+```bash
+export FORCE_CONTAINER_DEPLOY=true
+./scripts/deploy-observability-stack.sh --build --from loki
+```
+
+**Collector export errors (TLS / 404 to Loki):**
+
+```bash
+az containerapp logs show -n "$OTEL" -g "$RG" --type console --tail 50 \
+  | grep -Ei 'error|failed|refused|404|401|tls|loki|otlphttp'
+```
+
+Look for `invalid OTel Collector config`, TLS handshake failures, or HTTP 404 on `/otlp/v1/logs`.
+
+**Force runner OTLP reconnect (after collector redeploy):**
+
+```bash
+CAE_DOMAIN=$(az containerapp env show -n cae-telemetry-dev -g "$RG" \
+  --query properties.defaultDomain -o tsv)
+OTEL_EP="http://otel-collector-dev.internal.${CAE_DOMAIN}:4317"
+
+az containerapp update -n "$RUNNER" -g "$RG" \
+  --set-env-vars \
+    "OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EP}" \
+    "OTEL_EXPORTER_OTLP_INSECURE=true" \
+  --output none
+```
+
+Wait 2–3 min, then re-run `./scripts/diagnose-grafana-azure.sh`.
 
 ### Step-by-step (same as the script)
 
@@ -166,7 +270,18 @@ Takes ~10–15 min (ACR builds). Wait **2–3 min** after it finishes for runner
 git pull
 export FORCE_CONTAINER_DEPLOY=true
 ./scripts/deploy-observability-stack.sh --build --from loki
+./scripts/deploy-observability-stack.sh --from otlp --no-git-pull
 ./scripts/fix-runner.sh --no-git-pull
+
+# force new runner revision (OTLP log exporter reconnect)
+CAE_DOMAIN=$(az containerapp env show -n cae-telemetry-dev -g az03-al-titan-sandbox-rg \
+  --query properties.defaultDomain -o tsv)
+az containerapp update -n ai-telemetry-runner-dev -g az03-al-titan-sandbox-rg \
+  --set-env-vars \
+    "OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector-dev.internal.${CAE_DOMAIN}:4317" \
+    "OTEL_EXPORTER_OTLP_INSECURE=true" \
+  --output none
+
 python3 dashboards/generate_dashboards.py
 ./scripts/fix-grafana-datasources.sh
 ./scripts/diagnose-grafana-azure.sh
@@ -214,7 +329,12 @@ Expect `OTEL_EXPORTER_OTLP_ENDPOINT` = `http://otel-collector-dev.internal.<cae-
 ./scripts/diagnose-grafana-azure.sh
 ```
 
-**Success:** `telemetry_event (15m):` **> 0**
+**Success:**
+
+- `any service_name streams (15m):` **> 0**
+- `telemetry_event (15m):` **> 0**
+
+**Still 0 after repair?** See [Manual checks (when diagnose shows 0 Loki logs)](#manual-checks-when-diagnose-shows-0-loki-logs) above.
 
 ### Grafana Explore — correct LogQL
 
@@ -242,8 +362,12 @@ In the browser: **Ctrl+Shift+R** (hard refresh).
 | Symptom | Likely cause | Fix |
 |---|---|---|
 | Explore `{ } \|= ""` → No data | Empty query | Use LogQL block above |
-| Prometheus OK, all Loki panels empty | Log pipeline not deployed or collector down | `./scripts/fix-loki-logs-azure.sh` |
-| `telemetry_event (15m): 0` in diagnose | Runner OTLP not wired or collector not Running | `./scripts/fix-runner.sh` then redeploy obs stack |
+| Prometheus OK, all Loki panels empty | Log pipeline not deployed | `./scripts/fix-loki-logs-azure.sh` |
+| **`any service_name streams (15m): 0`** in diagnose | Nothing reached Loki (runner → collector → Loki) | `./scripts/fix-loki-logs-azure.sh` |
+| **OTel Collector `Running` but Loki still 0** | Wrong `LOKI_OTLP_ENDPOINT`, stock Loki image, or runner not exporting OTLP logs | Diagnose section + manual checks above |
+| `telemetry_event (15m): 0` but streams **> 0** | Runner not emitting batches | Check runner Running + `ALLOW_MOCK_MODE=true`; `./scripts/fix-runner.sh --build` |
+| No `OTLP log exporter` in runner logs | Runner env/revision stale | `./scripts/fix-runner.sh --build` or force OTLP env update (manual checks) |
+| Loki image is `grafana/loki:*` not ACR | Old Loki deploy without OTLP config | `./scripts/fix-loki-logs-azure.sh` |
 | OTel deploy warns “not confirmed ready” | Old curl check from Cloud Shell | Check `runningStatus` — ignore if `Running` |
 | Duplicate dashboard link rows | Stale Grafana image | `./scripts/rebuild-grafana-azure.sh` |
 
@@ -260,6 +384,12 @@ az containerapp replica list -n "$RUNNER" -g "$RG" -o table
 az containerapp logs show -n "$GRAFANA" -g "$RG" --type console --tail 40
 az containerapp logs show -n "$RUNNER" -g "$RG" --type console --tail 40
 az containerapp logs show -n "$OTEL" -g "$RG" --type console --tail 40
+
+# Loki log pipeline (runner export + collector → Loki)
+az containerapp logs show -n "$RUNNER" -g "$RG" --type console --tail 50 | grep -i "OTLP log"
+az containerapp logs show -n "$OTEL" -g "$RG" --type console --tail 50 | grep -Ei 'error|loki|failed|404|tls'
+az containerapp show -n "$OTEL" -g "$RG" \
+  --query "properties.template.containers[0].env[?name=='LOKI_OTLP_ENDPOINT']" -o table
 
 # ACR images present
 az acr repository list --name acrtelemetrydevaj -o table
