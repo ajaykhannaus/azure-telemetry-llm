@@ -48,7 +48,7 @@ PANEL_QUERIES = {
         "stat",
     ),
     "loki": (
-        'sum(count_over_time({service_name=~".+"} | json | line_format "{{.body}}" | json '
+        'sum(count_over_time({service_name=~".+"} | json '
         '| event_type="telemetry_event" | department=~"$department" | region=~"$region" '
         '| model_provider=~"$provider" | model_name=~"$model" | operation_name=~"$operation" '
         '| status=~"$status" | data_classification=~"$data_class" [1h]))',

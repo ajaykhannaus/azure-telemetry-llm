@@ -81,7 +81,7 @@ for i in $(seq 1 30); do
   COUNT=$(curl -sf 'http://localhost:9090/api/v1/query?query=sum(ai_gateway_request_count_total)' \
     | python3 -c "import sys,json; r=json.load(sys.stdin)['data']['result']; print(r[0]['value'][1] if r else '0')" 2>/dev/null || echo "0")
   LOKI_COUNT=$(curl -sf 'http://localhost:3100/loki/api/v1/query' \
-    --data-urlencode 'query=sum(count_over_time({service_name=~".+"} | json | line_format "{{.body}}" | json | event_type="telemetry_event" [5m]))' \
+    --data-urlencode 'query=sum(count_over_time({service_name=~".+"} | json | event_type="telemetry_event" [5m]))' \
     | python3 -c "import sys,json; r=json.load(sys.stdin)['data']['result']; print(r[0]['value'][1] if r else '0')" 2>/dev/null || echo "0")
   if [ "$COUNT" != "0" ] && [ "$LOKI_COUNT" != "0" ]; then
     break

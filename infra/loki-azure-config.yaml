@@ -1,8 +1,10 @@
-# Local Loki config — filesystem backend with higher query limits for dev dashboards.
+# Loki on Azure Container Apps — filesystem backend + native OTLP ingestion (Loki 3.x).
 auth_enabled: false
 
 server:
   http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
 
 common:
   path_prefix: /loki
@@ -27,7 +29,6 @@ schema_config:
 
 limits_config:
   allow_structured_metadata: true
-  # Default is 500; user-level panels with "All" departments exceed that locally.
   max_query_series: 5000
   max_query_parallelism: 32
 

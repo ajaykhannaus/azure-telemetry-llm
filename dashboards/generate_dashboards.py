@@ -38,8 +38,9 @@ DS_PROMETHEUS = {"type": "prometheus", "uid": PROM_UID}
 DS_LOKI       = {"type": "loki",       "uid": LOKI_UID}
 DS_TEMPO      = {"type": "tempo",      "uid": TEMPO_UID}
 
-# OTel Collector stores OTLP log records with JSON payload in a `body` field.
-_LOKI_STREAM = '{service_name=~".+"} | json | line_format "{{.body}}" | json |'
+# OTel Collector stores OTLP log records; with native Loki OTLP ingestion the log
+# line is the JSON body directly (single parse — no nested "body" field).
+_LOKI_STREAM = '{service_name=~".+"} | json |'
 
 
 def _loki_ratio(numerator: str, denominator: str, scale: float = 100) -> str:

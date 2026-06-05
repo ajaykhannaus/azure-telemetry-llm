@@ -283,15 +283,17 @@ fi
 
 PROM_FQDN=""
 
-# ── 1. Loki (public image) ───────────────────────────────────────────────────
+# ── 1. Loki (ACR image — OTLP-ready config) ───────────────────────────────────
 
 if step_enabled loki; then
   log "=== Loki ==="
   if skip_if_healthy "$LOKI_APP_NAME" "Loki" "loki"; then
     :
   else
+    build_if_needed "loki:latest" "$ROOT/Dockerfile.loki"
     loki_yaml="$ROOT/infra/loki.rendered.yaml"
-    render_loki_yaml "$loki_yaml"
+    render_acr_admin_yaml "$ROOT/infra/loki-acr-admin.template.yaml" "$loki_yaml" \
+      "${ACR_LOGIN_SERVER}/loki:latest"
     deploy_yaml_app "$LOKI_APP_NAME" "$loki_yaml"
     rm -f "$loki_yaml"
     wait_for_app_running "$LOKI_APP_NAME" "Loki" || true
@@ -349,7 +351,7 @@ if step_enabled otel; then
     build_if_needed "otel-collector:latest" "$ROOT/Dockerfile.collector"
 
     TEMPO_EP="$(internal_host "$TEMPO_APP_NAME"):4317"
-    LOKI_EP="https://$(internal_host "$LOKI_APP_NAME")/loki/api/v1/push"
+    LOKI_OTLP_EP="https://$(internal_host "$LOKI_APP_NAME")/otlp"
     PROM_EP="https://$(internal_host "$PROM_APP_NAME")/api/v1/write"
 
     otel_yaml="$ROOT/infra/otel.rendered.yaml"
@@ -358,7 +360,7 @@ if step_enabled otel; then
     user="$(awk_escape "$ACR_ADMIN_USER")"
     pass="$(awk_escape "$ACR_ADMIN_PASS")"
     tempo_ep="$(awk_escape "$TEMPO_EP")"
-    loki_ep="$(awk_escape "$LOKI_EP")"
+    loki_otlp_ep="$(awk_escape "$LOKI_OTLP_EP")"
     prom_ep="$(awk_escape "$PROM_EP")"
     awk -v loc="$AZURE_LOCATION" \
         -v env_id="$env_id" \
@@ -367,7 +369,7 @@ if step_enabled otel; then
         -v acr_pass="$pass" \
         -v image="${ACR_LOGIN_SERVER}/otel-collector:latest" \
         -v tempo_ep="$TEMPO_EP" \
-        -v loki_ep="$LOKI_EP" \
+        -v loki_otlp_ep="$LOKI_OTLP_EP" \
         -v prom_ep="$PROM_EP" \
         '{
           gsub(/__LOCATION__/, loc)
@@ -377,7 +379,7 @@ if step_enabled otel; then
           gsub(/__ACR_ADMIN_PASSWORD__/, acr_pass)
           gsub(/__IMAGE__/, image)
           gsub(/__TEMPO_ENDPOINT__/, tempo_ep)
-          gsub(/__LOKI_ENDPOINT__/, loki_ep)
+          gsub(/__LOKI_OTLP_ENDPOINT__/, loki_otlp_ep)
           gsub(/__PROM_WRITE_ENDPOINT__/, prom_ep)
           print
         }' "$ROOT/infra/otel-collector-acr-admin.template.yaml" > "$otel_yaml"

@@ -112,7 +112,7 @@ loki_queries = [
     ("any logs (15m)", 'sum(count_over_time({service_name=~".+"} [15m]))'),
     (
         "telemetry_event (15m)",
-        'sum(count_over_time({service_name=~".+"} | json | line_format "{{.body}}" | json | event_type="telemetry_event" [15m]))',
+        'sum(count_over_time({service_name=~".+"} | json | event_type="telemetry_event" [15m]))',
     ),
 ]
 for label, logql in loki_queries:

@@ -1,0 +1,38 @@
+# Loki Container App — config baked into ACR image (sandbox / no AcrPull MI).
+location: __LOCATION__
+properties:
+  managedEnvironmentId: __MANAGED_ENV_ID__
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: false
+      allowInsecure: false
+      targetPort: 3100
+      transport: auto
+    registries:
+      - server: __ACR_LOGIN_SERVER__
+        username: __ACR_USERNAME__
+        passwordSecretRef: acr-admin-password
+    secrets:
+      - name: acr-admin-password
+        value: __ACR_ADMIN_PASSWORD__
+  template:
+    containers:
+      - name: loki
+        image: __IMAGE__
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        probes:
+          - type: Liveness
+            httpGet:
+              path: /ready
+              port: 3100
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
+    scale:
+      minReplicas: 1
+      maxReplicas: 2
+identity:
+  type: SystemAssigned

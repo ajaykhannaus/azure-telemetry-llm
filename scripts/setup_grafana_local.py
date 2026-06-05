@@ -100,11 +100,11 @@ def _strip_export_metadata(dash: dict[str, Any]) -> None:
 
 
 def _patch_loki_expr(expr: str) -> str:
-    """OTel Collector stores OTLP records as JSON with a body field — unwrap it."""
-    needle = "| json |"
-    insert = '| json | line_format "{{.body}}" | json |'
-    if needle in expr and insert not in expr:
-        expr = expr.replace(needle, insert, 1)
+    """Normalize LogQL for native Loki OTLP ingestion (single JSON parse on log line)."""
+    expr = expr.replace(
+        '| json | line_format "{{.body}}" | json |',
+        '| json |',
+    )
     # Fix broken double-brace LogQL from older dashboard exports.
     expr = expr.replace("{{service_name=~", "{service_name=~")
     expr = expr.replace('budget_exhausted="True"', 'budget_exhausted="true"')

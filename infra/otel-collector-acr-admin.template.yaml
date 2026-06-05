@@ -36,8 +36,8 @@ properties:
         env:
           - name: TEMPO_ENDPOINT
             value: __TEMPO_ENDPOINT__
-          - name: LOKI_ENDPOINT
-            value: __LOKI_ENDPOINT__
+          - name: LOKI_OTLP_ENDPOINT
+            value: __LOKI_OTLP_ENDPOINT__
           - name: PROM_WRITE_ENDPOINT
             value: __PROM_WRITE_ENDPOINT__
         probes:

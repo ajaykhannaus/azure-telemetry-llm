@@ -89,6 +89,12 @@ def setup_otel_logging(json_formatter: logging.Formatter | None = None) -> None:
     _OTEL_LOGGER = get_logger("generator.telemetry")
 
     otlp_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "").strip()
+    if not otlp_endpoint:
+        logger.error(
+            "OTEL_EXPORTER_OTLP_ENDPOINT is not set — telemetry_event logs will NOT reach Loki. "
+            "Set it to the OTel Collector URL (e.g. http://otel-collector-dev.internal.<domain>:4317)."
+        )
+        return
     if otlp_endpoint and _OTLP_LOGS_AVAILABLE:
         try:
             insecure = os.getenv("OTEL_EXPORTER_OTLP_INSECURE", "true").lower() == "true"

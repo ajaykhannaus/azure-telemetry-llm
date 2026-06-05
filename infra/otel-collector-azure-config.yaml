@@ -58,8 +58,8 @@ exporters:
     resource_to_telemetry_conversion:
       enabled: true
 
-  loki:
-    endpoint: __LOKI_ENDPOINT__
+  otlphttp/loki:
+    endpoint: __LOKI_OTLP_ENDPOINT__
     tls:
       insecure: true
 
@@ -83,7 +83,7 @@ service:
     logs:
       receivers: [otlp]
       processors: [memory_limiter, resource, batch]
-      exporters: [loki]
+      exporters: [otlphttp/loki]
 
   telemetry:
     logs:
