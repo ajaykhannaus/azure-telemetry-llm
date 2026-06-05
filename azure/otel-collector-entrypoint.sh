@@ -19,4 +19,10 @@ sed \
   -e "s|__PROM_WRITE_ENDPOINT__|${PROM_WRITE_ENDPOINT}|g" \
   "$CONFIG" > "$OUT"
 
+if ! /otelcol-contrib validate --config="$OUT" 2>&1; then
+  echo "ERROR: invalid OTel Collector config:" >&2
+  cat "$OUT" >&2
+  exit 1
+fi
+
 exec /otelcol-contrib --config="$OUT"

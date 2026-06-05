@@ -350,7 +350,7 @@ if step_enabled otel; then
   else
     build_if_needed "otel-collector:latest" "$ROOT/Dockerfile.collector"
 
-    TEMPO_EP="$(internal_host "$TEMPO_APP_NAME"):4317"
+    TEMPO_EP="http://$(internal_host "$TEMPO_APP_NAME"):4317"
     LOKI_OTLP_EP="https://$(internal_host "$LOKI_APP_NAME")/otlp"
     PROM_EP="https://$(internal_host "$PROM_APP_NAME")/api/v1/write"
 
@@ -386,10 +386,11 @@ if step_enabled otel; then
 
     deploy_yaml_app "$OTEL_APP_NAME" "$otel_yaml"
     rm -f "$otel_yaml"
-    wait_for_app "$OTEL_APP_NAME" \
-      "curl -sf --max-time 10 \"https://$(app_fqdn "$OTEL_APP_NAME")/\" >/dev/null 2>&1 || \
-       curl -sf --max-time 10 \"http://$(internal_host "$OTEL_APP_NAME"):13133/\" >/dev/null" \
-      "OTel Collector" || true
+    if ! wait_for_app_running "$OTEL_APP_NAME" "OTel Collector"; then
+      log "WARN: OTel Collector not Running — recent logs:"
+      az containerapp logs show --name "$OTEL_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+        --tail 40 2>/dev/null || true
+    fi
   fi
 else
   log "SKIP OTel Collector — --from $FROM_STEP"

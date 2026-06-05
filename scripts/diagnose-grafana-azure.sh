@@ -48,6 +48,11 @@ for app in "$LOKI_APP_NAME" "$OTEL_APP_NAME"; do
     --query "{running:properties.runningStatus,prov:properties.provisioningState,replicas:properties.template.scale.minReplicas}" -o json 2>/dev/null \
     || echo '{"error":"missing"}')
   log "  $app: $state"
+  if [[ "$app" == "$OTEL_APP_NAME" && "$(echo "$state" | python3 -c "import sys,json; s=json.load(sys.stdin); print(s.get('running',''))" 2>/dev/null || echo "")" != "Running" ]]; then
+    log "  OTel Collector logs (last 20 lines):"
+    az containerapp logs show --name "$OTEL_APP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+      --tail 20 2>/dev/null | tail -20 || true
+  fi
 done
 
 python3 - "$GRAFANA_URL" "$GRAFANA_ADMIN_PASSWORD" <<'PY'
