@@ -9,7 +9,7 @@ graph TD
     end
 
     subgraph CICD["🔄 CI/CD — GitHub Actions"]
-        GH[GitHub\najaykhannaus/observability]
+        GH[GitHub\najaykhannaus/azure-telemetry-llm]
         VM_RUNNER["🖥️ Company Windows Server VM\nself-hosted runner\nJobs 1 & 2"]
         GH_RUNNER["☁️ GitHub-hosted ubuntu\nJobs 3 & 4 optional"]
     end

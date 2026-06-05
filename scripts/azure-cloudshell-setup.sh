@@ -4,7 +4,7 @@
 # =============================================================================
 # Run in Bash (Azure Cloud Shell or VS Code Web on Azure):
 #
-#   git clone https://github.com/ajaykhannaus/observability.git
+#   git clone https://github.com/ajaykhannaus/azure-telemetry-llm.git
 #   cd observability
 #   chmod +x scripts/azure-cloudshell-setup.sh
 #   ./scripts/azure-cloudshell-setup.sh

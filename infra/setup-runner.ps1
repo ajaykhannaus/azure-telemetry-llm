@@ -8,14 +8,14 @@
 # Usage (run in PowerShell as Administrator):
 #   Set-ExecutionPolicy RemoteSigned -Scope Process -Force
 #   .\infra\setup-runner.ps1 `
-#     -GitHubRepo    "ajaykhannaus/observability" `
+#     -GitHubRepo    "ajaykhannaus/azure-telemetry-llm" `
 #     -GitHubToken   "<token from GitHub repo → Settings → Actions → Runners → New runner>" `
 #     -RunnerName    "company-vm-runner"
 # =============================================================================
 
 param(
     [Parameter(Mandatory)]
-    [string]$GitHubRepo,        # e.g. "ajaykhannaus/observability"
+    [string]$GitHubRepo,        # e.g. "ajaykhannaus/azure-telemetry-llm"
 
     [Parameter(Mandatory)]
     [string]$GitHubToken,       # Registration token from GitHub (expires after 1 hour)

@@ -1,6 +1,6 @@
 # AI Gateway Telemetry
 
-**Repository:** https://github.com/ajaykhannaus/observability
+**Repository:** https://github.com/ajaykhannaus/azure-telemetry-llm
 
 Production observability pipeline: synthetic (or real) LLM gateway traffic →
 Azure Event Hubs → OpenTelemetry → Grafana (Bucket 1: with distributed tracing).

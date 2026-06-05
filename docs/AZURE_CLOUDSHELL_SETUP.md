@@ -51,7 +51,7 @@ az role assignment list --assignee "$(az ad signed-in-user show --query id -o ts
 ### Command 4
 
 ```bash
-git clone https://github.com/ajaykhannaus/observability.git
+git clone https://github.com/ajaykhannaus/azure-telemetry-llm.git
 ```
 
 ---

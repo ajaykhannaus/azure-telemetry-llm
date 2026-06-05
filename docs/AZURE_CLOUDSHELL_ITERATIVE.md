@@ -436,7 +436,7 @@ pwd
 If `cd ~/observability` fails, clone again:
 
 ```bash
-git clone https://github.com/ajaykhannaus/observability.git
+git clone https://github.com/ajaykhannaus/azure-telemetry-llm.git
 cd observability
 git pull
 chmod +x scripts/*.sh

@@ -330,14 +330,14 @@ def _patch_legacy_azure_panel(panel: dict[str, Any], loki_uid: str) -> None:
         panel["type"] = "logs"
         panel["targets"] = [{
             "datasource": loki_ds,
-            "expr": '{service_name=~".+"} | json | line_format "{{.body}}" | json | level="ERROR"',
+            "expr": '{service_name=~".+"} | json | level="ERROR"',
             "refId": "A",
         }]
     elif title == "Events by Model (from Logs)":
         panel["type"] = "timeseries"
         panel["targets"] = [{
             "datasource": loki_ds,
-            "expr": 'sum by (model_name) (count_over_time({service_name=~".+"} | json | line_format "{{.body}}" | json | event_type="telemetry_event" [5m]))',
+            "expr": 'sum by (model_name) (count_over_time({service_name=~".+"} | json | event_type="telemetry_event" [5m]))',
             "legendFormat": "{{model_name}}",
             "refId": "A",
         }]
