@@ -1,4 +1,4 @@
-# Local observability stack — Prometheus + Tempo + Loki + Grafana (all 9 dashboards)
+# Local observability stack — Prometheus + Tempo + Loki + Grafana (7 dashboards)
 # ==================================================================================
 # Usage:
 #   cp .env.example .env        # set ALLOW_MOCK_MODE=true, ENVIRONMENT=dev
@@ -94,7 +94,7 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
     ports:
-      - "3000:3000"
+      - "3001:3000"
     networks: [observability]
     depends_on: [prometheus, loki, tempo]
     restart: unless-stopped
