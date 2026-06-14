@@ -26,6 +26,12 @@ if OUT_DIR not in sys.path:
     sys.path.insert(0, OUT_DIR)
 
 from metric_definitions import METRIC_DEFINITIONS  # noqa: E402
+from users_observability_metrics import metrics_by_section, USERS_OBS_SECTIONS  # noqa: E402
+from users_observability_panels import (  # noqa: E402
+    UserObsContext,
+    _auto_grid,
+    build_users_obs_panel,
+)
 
 # ---------------------------------------------------------------------------
 # Datasource references (match dashboards/provisioning/datasources.yaml UIDs)
@@ -448,11 +454,11 @@ def _loki_instant_target(expr: str, legend: str = "", ref: str = "A") -> dict:
 
 
 def _loki_stat_target(expr: str, ref: str = "A") -> dict:
-    """Loki stat panels — range metric queries; instant often returns empty."""
+    """Loki stat/gauge scalar metrics — instant vector at query time."""
     return {
         "datasource": DS_LOKI, "expr": expr,
-        "refId": ref, "queryType": "range",
-        "instant": False, "range": True,
+        "refId": ref, "queryType": "instant",
+        "instant": True, "range": False,
     }
 
 
@@ -787,10 +793,35 @@ def build_dashboard_panels(
         else:
             title, section_panels, collapsed = entry
             desc = None
-        row = accordion_section(title, section_panels, collapsed=collapsed, description=desc)
-        row["gridPos"] = {"x": 0, "y": y, "w": 24, "h": 1}
-        result.append(row)
-        y += 1
+        if collapsed:
+            # Nested panels — Grafana hides them until the row is expanded.
+            row = accordion_section(title, section_panels, collapsed=True, description=desc)
+            row["gridPos"] = {"x": 0, "y": y, "w": 24, "h": 1}
+            result.append(row)
+            y += 1
+        else:
+            # Grafana 11 does not render row.panels when collapsed=false — flatten instead.
+            row: dict[str, Any] = {
+                "id": _next_id(),
+                "type": "row",
+                "title": title,
+                "collapsed": False,
+                "gridPos": {"x": 0, "y": y, "w": 24, "h": 1},
+                "panels": [],
+            }
+            if desc:
+                row["description"] = desc
+            result.append(row)
+            y += 1
+            ymin = min(p["gridPos"]["y"] for p in section_panels)
+            ymax = max(p["gridPos"]["y"] + p["gridPos"]["h"] for p in section_panels)
+            for panel in section_panels:
+                cp = dict(panel)
+                gp = dict(panel["gridPos"])
+                gp["y"] = y + (gp["y"] - ymin)
+                cp["gridPos"] = gp
+                result.append(cp)
+            y += ymax - ymin
 
     return result
 
@@ -2389,199 +2420,56 @@ def build_d8() -> dict:
 # ===========================================================================
 
 def build_d9() -> dict:
+    """Users Observability — mirrors Users Observability Metrics.xlsx (5 sections, 42 metrics)."""
     global _id_counter; _id_counter = 0
 
     F = FilterSet(*FILTERS_D9)
-    _tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}'
-    _tele_by_dept = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki_except("department")}'
-    _login = f'{_LOKI_STREAM} event_type="login_event" {F.login_loki}'
-
-    # LogQL does not support Prometheus clamp_min — use `or on(...) vector(...)` instead.
-    _prev_15m_tokens = (
-        f"sum(sum_over_time({_tele} | unwrap total_tokens [30m])) "
-        f"- sum(sum_over_time({_tele} | unwrap total_tokens [15m]))"
-    )
-    _spike_pct = (
-        f"("
-        f"sum(sum_over_time({_tele} | unwrap total_tokens [15m])) "
-        f"/ ({_prev_15m_tokens} or vector(1)) - 1) * 100"
-    )
-    _user_spike_ratio = (
-        f"topk(10, "
-        f"(sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [15m]))) "
-        f"/ ("
-        f"  sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [30m])) "
-        f"  - sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [15m])) "
-        f"  or on(user_id) vector(1)"
-        f"))"
+    ctx = UserObsContext(
+        tele=f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki}',
+        tele_by_dept=f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki_except("department")}',
+        login=f'{_LOKI_STREAM} event_type="login_event" {F.login_loki}',
     )
 
-    headline = [
-        stat_panel(
-            "Active users",
-            f'count(count by (user_id) (count_over_time({_tele} | user_id != "" [5m])))',
-            unit="short", decimals=0,
-            thresholds=[{"color": "blue", "value": None}],
-            color_mode="value",
-            grid=_grid(0, 0, 4, 4), datasource=DS_LOKI,
-        ),
-        stat_panel(
-            "Active sessions",
-            f'count(count by (session_id) (count_over_time({_tele} | session_id != "" [5m])))',
-            unit="short", decimals=0,
-            thresholds=[{"color": "blue", "value": None}],
-            color_mode="value",
-            grid=_grid(4, 0, 4, 4), datasource=DS_LOKI,
-        ),
-        stat_panel(
-            "Logins (24h)",
-            f'sum(count_over_time({_login} [24h])) or vector(0)',
-            unit="short", decimals=0,
-            thresholds=[{"color": "blue", "value": None}],
-            grid=_grid(8, 0, 4, 4), datasource=DS_LOKI,
-        ),
-        stat_panel(
-            "Active users (24h)",
-            f'count(count by (user_id) (count_over_time({_tele} | user_id != "" [24h])))',
-            unit="short", decimals=0,
-            thresholds=[{"color": "blue", "value": None}],
-            grid=_grid(12, 0, 4, 4), datasource=DS_LOKI,
-        ),
-        stat_panel(
-            "Monthly active users (30d)",
-            f'count(count by (user_id) (count_over_time({_login} | user_id != "" [30d])))',
-            unit="short", decimals=0,
-            thresholds=[{"color": "blue", "value": None}],
-            grid=_grid(16, 0, 4, 4), datasource=DS_LOKI,
-        ),
-        stat_panel(
-            "LLM usage spike (15m vs prev 15m)",
-            _spike_pct,
-            unit="percent", decimals=1,
-            thresholds=[
-                {"color": "green", "value": None},
-                {"color": "yellow", "value": 50},
-                {"color": "red", "value": 150},
-            ],
-            grid=_grid(20, 0, 4, 4), datasource=DS_LOKI,
-        ),
-    ]
+    section_specs: list[tuple[str, list[dict], bool, str]] = []
+    by_section = metrics_by_section()
+    for section in USERS_OBS_SECTIONS:
+        metrics = by_section[section]
+        panels = [
+            build_users_obs_panel(
+                m, ctx, _auto_grid(i),
+                stat_panel=stat_panel,
+                gauge_panel=gauge_panel,
+                timeseries_panel=timeseries_panel,
+                barchart_panel=barchart_panel,
+                bargauge_panel=bargauge_panel,
+                piechart_panel=piechart_panel,
+                DS_LOKI=DS_LOKI,
+                _loki_target=_loki_target,
+                _loki_instant_target=_loki_instant_target,
+            )
+            for i, m in enumerate(metrics)
+        ]
+        # Adoption expanded (flat layout); other sections collapsed accordion.
+        section_specs.append((
+            section,
+            panels,
+            section != "Adoption",
+            f"{len(metrics)} metrics from Users Observability Metrics.xlsx",
+        ))
 
-    panels = build_dashboard_panels(headline, [
-        ("Login & user growth", [
-            timeseries_panel(
-                "Login track",
-                [_loki_target(
-                    f'sum(count_over_time({_login} [5m])) or vector(0)',
-                    "Logins / 5m", "A",
-                )],
-                unit="short", grid=_grid(0, 0, 12, 8), datasource=DS_LOKI,
-            ),
-            stat_panel(
-                "Daily active users (24h)",
-                f'count(count by (user_id) (count_over_time({_login} [24h])))',
-                unit="short", decimals=0,
-                thresholds=[{"color": "blue", "value": None}],
-                color_mode="value",
-                grid=_grid(12, 0, 12, 8), datasource=DS_LOKI,
-            ),
-            barchart_panel(
-                "Active users by department (24h)",
-                [_loki_instant_target(
-                    f'sort_desc(count by (department) (count by (user_id, department) '
-                    f'(count_over_time({_tele_by_dept} | user_id != "" | department != "" [24h]))))',
-                    "{{department}}",
-                )],
-                unit="short",
-                orientation="horizontal",
-                grid=_grid(0, 8, 24, 8),
-                datasource=DS_LOKI,
-            ),
-        ], False, "Login activity and department-level user counts"),
-        ("Token consumption by user", [
-            barchart_panel(
-                "Top 10 users — tokens (24h)",
-                [_loki_instant_target(
-                    f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [24h])))',
-                    "{{user_id}}",
-                )],
-                unit="short", grid=_grid(0, 0, 12, 8), datasource=DS_LOKI,
-            ),
-            barchart_panel(
-                "Top 10 users — token rate (5m)",
-                [_loki_instant_target(
-                    f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap total_tokens [5m])))',
-                    "{{user_id}}",
-                )],
-                unit="short", grid=_grid(12, 0, 12, 8), datasource=DS_LOKI,
-            ),
-        ], True, "Heaviest token consumers by user"),
-        ("Session-level usage", [
-            barchart_panel(
-                "Top 10 users — session time (6h)",
-                [_loki_instant_target(
-                    f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap session_time_ms [6h])))',
-                    "{{user_id}}",
-                )],
-                unit="ms", grid=_grid(0, 0, 12, 8), datasource=DS_LOKI,
-            ),
-            table_panel(
-                "Top users by tokens (6h)",
-                [_loki_instant_target(
-                    f"topk(50, sum by (user_id, department) "
-                    f"(sum_over_time({_tele} | unwrap total_tokens [6h])))",
-                    "",
-                )],
-                grid=_grid(12, 0, 12, 8), datasource=DS_LOKI,
-            ),
-            barchart_panel(
-                "Session time by user (top 10, 5m)",
-                [_loki_instant_target(
-                    f'topk(10, sum by (user_id) (sum_over_time({_tele} | unwrap session_time_ms [5m])))',
-                    "{{user_id}}",
-                )],
-                unit="ms", grid=_grid(0, 8, 24, 8), datasource=DS_LOKI,
-            ),
-        ], True, "Session duration and per-user token tables"),
-        ("Usage spikes", [
-            timeseries_panel(
-                "Token volume — spike detector (5m buckets)",
-                [
-                    _loki_target(
-                        f'sum(sum_over_time({_tele} | unwrap total_tokens [5m]))',
-                        "Tokens / 5m", "A",
-                    ),
-                    _loki_target(
-                        f'sum(sum_over_time({_tele} | unwrap total_tokens [1h])) / 12',
-                        "1h avg per 5m", "B",
-                    ),
-                ],
-                unit="short", grid=_grid(0, 0, 14, 8), datasource=DS_LOKI,
-            ),
-            barchart_panel(
-                "Top 10 users — spike ratio (15m vs prev 15m)",
-                [_loki_instant_target(_user_spike_ratio, "{{user_id}}")],
-                unit="short", grid=_grid(14, 0, 10, 8), datasource=DS_LOKI,
-            ),
-            logs_panel(
-                "Recent login events",
-                f'{_login}',
-                grid=_grid(0, 8, 24, 8), datasource=DS_LOKI,
-            ),
-        ], True, "Sudden usage spikes and recent login audit"),
-    ])
+    panels = build_dashboard_panels(None, section_specs)
 
-    return dashboard(
+    d = dashboard(
         uid="ai-telemetry-users",
         title="5. User observability",
-        description=(
-            "Active users and sessions, login tracking, monthly user growth, "
-            "top token consumers, session time, and usage spikes."
-        ),
-        tags=["ai-telemetry", "users", "sessions", "login"],
+        description="Users Observability — AI Usage Metrics Framework (Adoption, Engagement, Experience & DQ, Productivity, Governance & Risk).",
+        tags=["ai-telemetry", "users", "adoption", "engagement"],
         panels=panels,
         variables=F.variables(),
+        refresh="1m",
     )
+    d["time"] = {"from": "now-24h", "to": "now"}
+    return d
 
 
 # ===========================================================================

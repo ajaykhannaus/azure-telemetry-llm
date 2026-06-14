@@ -494,7 +494,7 @@ def main() -> None:
 
     print(f"  importing {len(_dashboard_files())} dashboards into '{FOLDER_TITLE}'...")
     for path in _dashboard_files():
-        dash = json.loads(path.read_text())
+        dash = json.loads(path.read_text(encoding="utf-8"))
         _strip_export_metadata(dash)
         if path.name == "grafana_dashboard.json":
             _patch_legacy_dashboard(dash, prom_uid, loki_uid, tempo_uid)

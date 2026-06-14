@@ -236,6 +236,38 @@ METRIC_DEFINITIONS: dict[str, str] = {
     "Daily active users (24h)": (
         "Distinct users with a `login_event` in the last 24h (stat with sparkline)."
     ),
+    "DAU (24h)": (
+        "Distinct users with a `login_event` in the last 24h — daily active users (DAU)."
+    ),
+    "WAU (7d)": (
+        "Distinct users with a `login_event` in the last 7 days — weekly active users (WAU)."
+    ),
+    "MAU (30d)": (
+        "Distinct users with a `login_event` in the last 30 days — monthly active users (MAU)."
+    ),
+    "Active Users (DAU/WAU/MAU)": (
+        "Distinct users with a `login_event` in the last 24h (DAU), 7d (WAU), and 30d (MAU)."
+    ),
+    "Adoption Rate": (
+        "Percent of eligible users actively using AI: DAU ÷ eligible population × 100. "
+        "Eligible population is summed per `department` from `eligible_user_count` on telemetry events."
+    ),
+    "New User Activation Rate": (
+        "Funnel from eligible population → logins (24h) → first-time activations "
+        "(`is_new_user=\"true\"` on `login_event`)."
+    ),
+    "Feature Adoption Rate": (
+        "Distinct users per `feature_id` (operation/capability) in the last 24h — "
+        "horizontal bar chart ranked by adoption."
+    ),
+    "User Penetration by Department": (
+        "Active users per department ÷ eligible users for that department × 100 — "
+        "bar gauge showing org-unit penetration."
+    ),
+    "Returning User Rate": (
+        "Percent of DAU with more than one login in 24h — cohort retention proxy "
+        "from `login_event` logs."
+    ),
     "Top 10 users — tokens (24h)": (
         "Users ranked by sum of `total_tokens` over 24h — who is consuming the most tokens."
     ),
@@ -399,3 +431,7 @@ METRIC_DEFINITIONS: dict[str, str] = {
         "Log lines where any safety flag fired — combined injection, jailbreak, or compliance events."
     ),
 }
+
+from users_observability_metrics import register_metric_definitions  # noqa: E402
+
+register_metric_definitions(METRIC_DEFINITIONS)

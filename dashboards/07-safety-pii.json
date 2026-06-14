@@ -223,9 +223,9 @@
           },
           "expr": "avg(avg_over_time({service_name=~\".+\"} | json | event_type=\"prompt_log_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" | unwrap toxicity_score [24h])) * 100",
           "refId": "A",
-          "queryType": "range",
-          "instant": false,
-          "range": true
+          "queryType": "instant",
+          "instant": true,
+          "range": false
         }
       ],
       "description": "Average content-safety `toxicity_score` on prompt logs, scaled to 0\u2013100%. Source: Loki `prompt_log_event`."
@@ -295,9 +295,9 @@
           },
           "expr": "(sum(count_over_time({service_name=~\".+\"} | json | event_type=\"prompt_log_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" | pii_detected=\"true\" [24h])) / (sum(count_over_time({service_name=~\".+\"} | json | event_type=\"prompt_log_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" [24h])) or on() vector(1))) * 100",
           "refId": "A",
-          "queryType": "range",
-          "instant": false,
-          "range": true
+          "queryType": "instant",
+          "instant": true,
+          "range": false
         }
       ],
       "description": "% of prompt logs with `pii_detected=true`. PII must stay in logs, not Prometheus labels."
@@ -367,9 +367,9 @@
           },
           "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"prompt_log_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" | prompt_injection_detected=\"true\" [24h])) or vector(0)",
           "refId": "A",
-          "queryType": "range",
-          "instant": false,
-          "range": true
+          "queryType": "instant",
+          "instant": true,
+          "range": false
         }
       ],
       "description": "Count of prompts flagged `prompt_injection_detected=true` in 24h."
@@ -439,9 +439,9 @@
           },
           "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"prompt_log_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" | jailbreak_attempt=\"true\" [24h])) or vector(0)",
           "refId": "A",
-          "queryType": "range",
-          "instant": false,
-          "range": true
+          "queryType": "instant",
+          "instant": true,
+          "range": false
         }
       ],
       "description": "Count of prompts flagged `jailbreak_attempt=true` (role-override / DAN-style) in 24h."
@@ -511,9 +511,9 @@
           },
           "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"prompt_log_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" | compliance_violation=\"true\" [24h])) or vector(0)",
           "refId": "A",
-          "queryType": "range",
-          "instant": false,
-          "range": true
+          "queryType": "instant",
+          "instant": true,
+          "range": false
         }
       ],
       "description": "Count of prompts with `compliance_violation=true` (policy / classification breach) in 24h."
@@ -987,9 +987,9 @@
               },
               "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"prompt_log_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" | pii_detected=\"true\" [24h])) or vector(0)",
               "refId": "A",
-              "queryType": "range",
-              "instant": false,
-              "range": true
+              "queryType": "instant",
+              "instant": true,
+              "range": false
             }
           ],
           "description": "Total prompt logs with PII detected in the last 24h."
@@ -1051,9 +1051,9 @@
               },
               "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" | data_classification=\"phi\" [24h])) or vector(0)",
               "refId": "A",
-              "queryType": "range",
-              "instant": false,
-              "range": true
+              "queryType": "instant",
+              "instant": true,
+              "range": false
             }
           ],
           "description": "Telemetry events with `data_classification=phi` (protected health information) in 24h."
@@ -1115,9 +1115,9 @@
               },
               "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" | data_classification=\"pii\" [24h])) or vector(0)",
               "refId": "A",
-              "queryType": "range",
-              "instant": false,
-              "range": true
+              "queryType": "instant",
+              "instant": true,
+              "range": false
             }
           ],
           "description": "Telemetry events with `data_classification=pii` in 24h."
@@ -1179,9 +1179,9 @@
               },
               "expr": "count(sum by (prompt_hash) (count_over_time({service_name=~\".+\"} | json | event_type=\"prompt_log_event\" | department=~\"$department\" | data_classification=~\"$data_class\" | model_provider=~\"$provider\" | model_name=~\"$model\" [24h])))",
               "refId": "A",
-              "queryType": "range",
-              "instant": false,
-              "range": true
+              "queryType": "instant",
+              "instant": true,
+              "range": false
             }
           ],
           "description": "Distinct `prompt_hash` values audited \u2014 coverage of prompt logging without storing raw text."
