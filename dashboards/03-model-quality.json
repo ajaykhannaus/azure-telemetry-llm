@@ -1,7 +1,7 @@
 {
   "uid": "ai-telemetry-quality",
   "title": "3. AI observability",
-  "description": "Model-specific latency, first-token latency, quality scores, and streaming performance.",
+  "description": "Model-specific latency, first-token latency, quality scores, AI error signals, and streaming performance.",
   "tags": [
     "ai-telemetry",
     "quality",
@@ -157,7 +157,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 24,
+        "w": 18,
         "h": 3
       },
       "targets": [],
@@ -165,6 +165,77 @@
     },
     {
       "id": 2,
+      "type": "stat",
+      "title": "AI errors (5m)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
+        "text": {}
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(ai_gateway_exception_count_total{department=~\"$department\",model_provider=~\"$provider\",model_name=~\"$model\",operation_name=~\"$operation\",environment=~\"$environment\"}[5m])) or vector(0)",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "description": "AI failures in the last 5 minutes. Shown beside the tabs."
+    },
+    {
+      "id": 3,
       "type": "stat",
       "title": "Hallucination rate",
       "datasource": {
@@ -233,10 +304,10 @@
           "range": true
         }
       ],
-      "description": "% of judged responses where `faithfulness < 5` (0\u201310 judge scale). Source: Loki `eval_result` events (~sampled traffic). Requires evaluator enabled."
+      "description": "Percent of answers flagged as not factual. Lower is better."
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "stat",
       "title": "Factual accuracy",
       "datasource": {
@@ -305,10 +376,10 @@
           "range": true
         }
       ],
-      "description": "Mean judge `faithfulness` \u00d7 10, shown as 0\u2013100%. Higher is more factually aligned with sources/context."
+      "description": "How factually correct answers are judged to be. Higher is better."
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "stat",
       "title": "Relevance score",
       "datasource": {
@@ -377,10 +448,10 @@
           "range": true
         }
       ],
-      "description": "Mean judge `relevance` (0\u201310): does the answer address the user question?"
+      "description": "How well answers match the question. Higher is better."
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "stat",
       "title": "Groundedness score",
       "datasource": {
@@ -449,22 +520,165 @@
           "range": true
         }
       ],
-      "description": "Mean judge `groundedness` (0\u201310): are claims supported by provided context/sources?"
+      "description": "How well answers stay supported by provided context. Higher is better."
     },
     {
-      "id": 6,
+      "id": 7,
+      "type": "stat",
+      "title": "AI \u2014 Errors (5m)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
+        "text": {}
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(ai_gateway_exception_count_total{department=~\"$department\",model_provider=~\"$provider\",model_name=~\"$model\",operation_name=~\"$operation\",environment=~\"$environment\"}[5m])) or vector(0)",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "description": "AI request failures in the last 5 minutes."
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "AI \u2014 Evaluator Errors (24h)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
+        "text": {}
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 7,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"eval_result\" | department=~\"$department\" | model_provider=~\"$provider\" | model_name=~\"$model\" | operation_name=~\"$operation\" |~ \"mock_judge_timeout\" [24h])) or on() vector(0)",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "Quality-check failures in the last 24 hours."
+    },
+    {
+      "id": 9,
       "type": "row",
       "title": "Model latency",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 7,
+        "y": 11,
         "w": 24,
         "h": 1
       },
       "panels": [
         {
-          "id": 7,
+          "id": 10,
           "type": "timeseries",
           "title": "Model Specific Latency",
           "datasource": {
@@ -537,10 +751,10 @@
               "range": true
             }
           ],
-          "description": "p95 end-to-end latency per `model_name`. Compares which models are consistently slower."
+          "description": "Response time by AI model. Compare which models are slower."
         },
         {
-          "id": 8,
+          "id": 11,
           "type": "timeseries",
           "title": "First token latency (Model Based)",
           "datasource": {
@@ -612,25 +826,25 @@
               "queryType": "range"
             }
           ],
-          "description": "Average `first_token_ms` for streaming requests, by model. Source: Loki logs \u2014 time until the first token is returned to the client."
+          "description": "Time until the first word appears in a streaming reply, by model."
         }
       ],
       "description": "Per-model p95 and first-token latency"
     },
     {
-      "id": 9,
+      "id": 12,
       "type": "row",
       "title": "Quality trends",
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 8,
+        "y": 12,
         "w": 24,
         "h": 1
       },
       "panels": [
         {
-          "id": 10,
+          "id": 13,
           "type": "timeseries",
           "title": "Hallucination rate over time",
           "datasource": {
@@ -704,10 +918,10 @@
               "queryType": "range"
             }
           ],
-          "description": "Rolling 5m percentage of judged responses flagged as hallucinating (`faithfulness < 5`). Source: Loki `eval_result` events."
+          "description": "How often answers are flagged as not factual over time."
         },
         {
-          "id": 11,
+          "id": 14,
           "type": "timeseries",
           "title": "Factual accuracy",
           "datasource": {
@@ -780,10 +994,10 @@
               "queryType": "range"
             }
           ],
-          "description": "Mean judge `faithfulness` \u00d7 10, shown as 0\u2013100%. Higher is more factually aligned with sources/context."
+          "description": "How factually correct answers are judged to be. Higher is better."
         },
         {
-          "id": 12,
+          "id": 15,
           "type": "timeseries",
           "title": "Relevance score",
           "datasource": {
@@ -866,10 +1080,10 @@
               "queryType": "range"
             }
           ],
-          "description": "Mean judge `relevance` (0\u201310): does the answer address the user question?"
+          "description": "How well answers match the question. Higher is better."
         },
         {
-          "id": 13,
+          "id": 16,
           "type": "timeseries",
           "title": "Groundedness score",
           "datasource": {
@@ -952,25 +1166,25 @@
               "queryType": "range"
             }
           ],
-          "description": "Mean judge `groundedness` (0\u201310): are claims supported by provided context/sources?"
+          "description": "How well answers stay supported by provided context. Higher is better."
         }
       ],
       "description": "Judge score trends over time"
     },
     {
-      "id": 14,
+      "id": 17,
       "type": "row",
       "title": "Evaluation Ops",
       "collapsed": true,
       "gridPos": {
         "x": 0,
-        "y": 9,
+        "y": 13,
         "w": 24,
         "h": 1
       },
       "panels": [
         {
-          "id": 15,
+          "id": 18,
           "type": "stat",
           "title": "Evaluation Coverage",
           "datasource": {
@@ -1031,10 +1245,10 @@
               "range": true
             }
           ],
-          "description": "% of telemetry events that also have an `eval_result` log \u2014 how much traffic is quality-judged."
+          "description": "Percent of requests that received a quality check."
         },
         {
-          "id": 16,
+          "id": 19,
           "type": "stat",
           "title": "Evaluator Errors (24h)",
           "datasource": {
@@ -1103,10 +1317,10 @@
               "range": true
             }
           ],
-          "description": "Count of eval runs that failed (e.g. judge timeout) in 24h. Non-zero means quality pipeline is unhealthy."
+          "description": "Quality checks that failed in the last 24 hours."
         },
         {
-          "id": 17,
+          "id": 20,
           "type": "logs",
           "title": "Low-Quality Responses (hallucination flagged)",
           "datasource": {
@@ -1140,25 +1354,25 @@
               "legendFormat": ""
             }
           ],
-          "description": "Raw `eval_result` logs where faithfulness failed \u2014 drill-down for bad responses."
+          "description": "Individual answers flagged as low quality. Use for review."
         }
       ],
       "description": "Coverage, evaluator health, and flagged responses"
     },
     {
-      "id": 18,
+      "id": 21,
       "type": "row",
       "title": "Streaming performance",
       "collapsed": true,
       "gridPos": {
         "x": 0,
-        "y": 10,
+        "y": 14,
         "w": 24,
         "h": 1
       },
       "panels": [
         {
-          "id": 19,
+          "id": 22,
           "type": "timeseries",
           "title": "Live token generation rate",
           "datasource": {
@@ -1235,10 +1449,10 @@
               "range": true
             }
           ],
-          "description": "1-minute stacked completion-token rate by model \u2014 near-real-time output."
+          "description": "How fast each model is producing output right now."
         },
         {
-          "id": 20,
+          "id": 23,
           "type": "timeseries",
           "title": "Streaming response latency",
           "datasource": {
@@ -1311,25 +1525,25 @@
               "queryType": "range"
             }
           ],
-          "description": "Average `stream_response_ms` by model for streaming responses."
+          "description": "How long streaming replies take, by model."
         }
       ],
       "description": "Live token generation and streaming response latency"
     },
     {
-      "id": 21,
+      "id": 24,
       "type": "row",
       "title": "Streaming throughput",
       "collapsed": true,
       "gridPos": {
         "x": 0,
-        "y": 11,
+        "y": 15,
         "w": 24,
         "h": 1
       },
       "panels": [
         {
-          "id": 22,
+          "id": 25,
           "type": "bargauge",
           "title": "Streaming tokens/sec",
           "datasource": {
@@ -1378,10 +1592,10 @@
               "queryType": "instant"
             }
           ],
-          "description": "Observed streaming `tokens_per_second` ranked by model."
+          "description": "Streaming speed by model. Higher means faster output."
         },
         {
-          "id": 23,
+          "id": 26,
           "type": "stat",
           "title": "Avg stream tokens/s",
           "datasource": {
@@ -1442,7 +1656,7 @@
               "range": true
             }
           ],
-          "description": "Platform-wide average streaming throughput from logs."
+          "description": "Average streaming speed across all models."
         }
       ],
       "description": "Per-model streaming tokens per second"

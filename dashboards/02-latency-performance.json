@@ -177,7 +177,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 24,
+        "w": 18,
         "h": 3
       },
       "targets": [],
@@ -185,6 +185,77 @@
     },
     {
       "id": 2,
+      "type": "stat",
+      "title": "Errors (5m)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
+        "text": {}
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(ai_gateway_exception_count_total{department=~\"$department\",region=~\"$region\",model_provider=~\"$provider\",model_name=~\"$model\",operation_name=~\"$operation\",environment=~\"$environment\"}[5m])) or vector(0)",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "description": "Failures in the last 5 minutes. Shown beside the tabs."
+    },
+    {
+      "id": 3,
       "type": "row",
       "title": "Latency",
       "collapsed": false,
@@ -196,7 +267,7 @@
       },
       "panels": [
         {
-          "id": 3,
+          "id": 4,
           "type": "timeseries",
           "title": "End-to-end response latency",
           "datasource": {
@@ -269,10 +340,10 @@
               "range": true
             }
           ],
-          "description": "Average gateway response time in ms: histogram `_sum / _count` on `ai_gateway_request_duration_milliseconds`. Includes queue, model, and streaming time."
+          "description": "Average time from request to full response, in milliseconds."
         },
         {
-          "id": 4,
+          "id": 5,
           "type": "timeseries",
           "title": "Request Latency \u2014 p50 / p95 / p99",
           "datasource": {
@@ -367,13 +438,13 @@
               "range": true
             }
           ],
-          "description": "Latency percentiles from the request duration histogram. p99 is the slowest 1% \u2014 the usual SLO pain metric."
+          "description": "Typical and worst-case response times. p99 is the slowest 1% of requests."
         }
       ],
       "description": "End-to-end latency and percentile breakdown"
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "row",
       "title": "Queue",
       "collapsed": true,
@@ -385,7 +456,7 @@
       },
       "panels": [
         {
-          "id": 6,
+          "id": 7,
           "type": "timeseries",
           "title": "Queue delays",
           "datasource": {
@@ -467,7 +538,7 @@
               "queryType": "range"
             }
           ],
-          "description": "Average `queue_wait_ms` before the model starts processing. Source: Loki \u2014 separates queue congestion from model inference time."
+          "description": "Time requests wait in queue before the model starts. High means congestion."
         }
       ],
       "description": "Average and per-model queue wait time"

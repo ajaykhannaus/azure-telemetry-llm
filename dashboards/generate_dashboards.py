@@ -289,6 +289,8 @@ def stat_panel(
     mappings: list | None = None,
     decimals: int = 2,
     description: str | None = None,
+    graph_mode: str = "area",
+    text_mode: str = "auto",
 ) -> dict:
     ds = datasource or DS_PROMETHEUS
     th = thresholds or [
@@ -312,9 +314,9 @@ def stat_panel(
         "options": {
             "reduceOptions": {"calcs": ["lastNotNull"]},
             "colorMode": color_mode,
-            "graphMode": "area",
+            "graphMode": graph_mode,
             "justifyMode": "center",
-            "textMode": "auto",
+            "textMode": text_mode,
             "wideLayout": True,
             "showPercentChange": False,
             "percentChangeColorMode": "standard",
@@ -499,6 +501,7 @@ def barchart_panel(
     grid: dict | None = None, datasource: dict | None = None,
     orientation: str = "auto",
     description: str | None = None,
+    show_value: str = "auto",
 ) -> dict:
     ds = datasource or DS_PROMETHEUS
     return _with_description({
@@ -527,7 +530,7 @@ def barchart_panel(
             "groupWidth": 0.7,
             "barWidth": 0.9,
             "fullHighlight": False,
-            "showValue": "auto",
+            "showValue": show_value,
             "stacking": "none",
             "tooltip": {"mode": "single", "sort": "desc"},
             "legend": {"displayMode": "list", "placement": "bottom", "showLegend": True},
@@ -543,6 +546,7 @@ def piechart_panel(
     pie_type: str = "pie",
     unit: str = "short",
     description: str | None = None,
+    display_labels: list[str] | None = None,
 ) -> dict:
     ds = datasource or DS_PROMETHEUS
     return _with_description({
@@ -558,7 +562,7 @@ def piechart_panel(
         },
         "options": {
             "pieType": pie_type,
-            "displayLabels": [],
+            "displayLabels": display_labels or [],
             "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": False},
             "legend": {"displayMode": "table", "placement": "right", "showLegend": True,
                        "values": ["value"]},
@@ -891,16 +895,60 @@ def nav_bar_panel(current_uid: str) -> dict:
     return text_panel(
         "",
         content,
-        grid=_grid(0, 0, 24, NAV_BAR_HEIGHT),
+        grid=_grid(0, 0, 18, NAV_BAR_HEIGHT),
         mode="html",
         transparent=True,
     )
 
 
-def _prepend_nav(uid: str, panels: list[dict],
-                 title: str = "", subtitle: str = "") -> list[dict]:
+def nav_error_stat_panel(
+    title: str,
+    expr: str,
+    *,
+    unit: str = "short",
+    decimals: int = 0,
+    thresholds: list[dict] | None = None,
+    datasource: dict | None = None,
+) -> dict:
+    """Compact error count shown top-right beside the dashboard tab nav row."""
+    th = thresholds or [
+        {"color": "green", "value": None},
+        {"color": "yellow", "value": 3},
+        {"color": "red", "value": 10},
+    ]
+    return stat_panel(
+        title,
+        expr,
+        unit=unit,
+        decimals=decimals,
+        thresholds=th,
+        color_mode="value",
+        grid=_grid(18, 0, 6, NAV_BAR_HEIGHT),
+        datasource=datasource or DS_PROMETHEUS,
+        graph_mode="none",
+        text_mode="value_and_name",
+    )
+
+
+def _nav_gateway_errors_5m(f_prom: str, title: str = "Errors (5m)") -> dict:
+    return nav_error_stat_panel(
+        title,
+        f'sum(increase(ai_gateway_exception_count_total{f_prom}[5m])) or vector(0)',
+    )
+
+
+def _prepend_nav(
+    uid: str,
+    panels: list[dict],
+    title: str = "",
+    subtitle: str = "",
+    nav_error: dict | None = None,
+) -> list[dict]:
     nav = nav_bar_panel(uid)
-    return [nav] + _shift_panels_y(panels, NAV_BAR_HEIGHT)
+    header = [nav]
+    if nav_error is not None:
+        header.append(nav_error)
+    return header + _shift_panels_y(panels, NAV_BAR_HEIGHT)
 
 
 def _dashboard_nav_links() -> list[dict]:
@@ -929,10 +977,13 @@ def dashboard(
     panels: list[dict],
     variables: list[dict],
     refresh: str = "30s",
+    nav_error: dict | None = None,
 ) -> dict:
     global _id_counter
     _id_counter = 0   # reset per dashboard so IDs start at 1
-    panels = _prepend_nav(uid, panels, title=title, subtitle=description)
+    panels = _prepend_nav(
+        uid, panels, title=title, subtitle=description, nav_error=nav_error,
+    )
     _assign_panel_ids(panels)
     return {
         "uid": uid,
@@ -1176,12 +1227,12 @@ def build_d1() -> dict:
             barchart_panel(
                 "Errors by HTTP Status Code (last 1h)",
                 [{"datasource": DS_PROMETHEUS, "expr": f'sort_desc(sum by (http_status) (increase(ai_gateway_exception_count_total{_f}[1h])))', "legendFormat": "{{http_status}}", "refId": "A", "instant": True}],
-                unit="short", grid=_grid(12, 0, 8, 8),
+            unit="short", grid=_grid(12, 0, 8, 8), show_value="always",
             ),
             piechart_panel(
                 "Error Category Mix",
                 [{"datasource": DS_PROMETHEUS, "expr": f'sort_desc(sum by (error_category) (increase(ai_gateway_exception_count_total{_f}[1h])))', "legendFormat": "{{error_category}}", "refId": "A", "instant": True}],
-                grid=_grid(20, 0, 4, 8),
+            grid=_grid(20, 0, 4, 8), display_labels=["name", "percent"],
             ),
         ], True, "Error types, HTTP status codes, and categories"),
         ("SLA Compliance", [
@@ -1224,6 +1275,7 @@ def build_d1() -> dict:
         tags=["ai-telemetry", "traffic", "requests", "data"],
         panels=panels,
         variables=F.variables(),
+        nav_error=_nav_gateway_errors_5m(_f),
     )
 
 
@@ -1274,12 +1326,12 @@ def build_d2() -> dict:
             barchart_panel(
                 "Errors by HTTP Status Code (last 1h)",
                 [{"datasource": DS_PROMETHEUS, "expr": f'sort_desc(sum by (http_status) (increase(ai_gateway_exception_count_total{_f}[1h])))', "legendFormat": "{{http_status}}", "refId": "A", "instant": True}],
-                unit="short", grid=_grid(12, 0, 8, 8),
+            unit="short", grid=_grid(12, 0, 8, 8), show_value="always",
             ),
             piechart_panel(
                 "Error Category Mix",
                 [{"datasource": DS_PROMETHEUS, "expr": f'sort_desc(sum by (error_category) (increase(ai_gateway_exception_count_total{_f}[1h])))', "legendFormat": "{{error_category}}", "refId": "A", "instant": True}],
-                grid=_grid(20, 0, 4, 8),
+            grid=_grid(20, 0, 4, 8), display_labels=["name", "percent"],
             ),
         ], True, "Error taxonomy and HTTP status breakdown"),
         ("SLA Compliance", [
@@ -1392,6 +1444,7 @@ def build_d3() -> dict:
         tags=["ai-telemetry", "latency", "network"],
         panels=panels,
         variables=F.variables(),
+        nav_error=_nav_gateway_errors_5m(_f),
     )
 
 
@@ -1452,6 +1505,8 @@ def build_d4() -> dict:
             ],
             color_mode="value",
             grid=_grid(18, 0, 6, 5),
+            graph_mode="none",
+            text_mode="value_and_name",
         ),
     ]
 
@@ -1620,7 +1675,7 @@ def build_d4() -> dict:
                   "expr": f'sort_desc(sum by (error_type) (increase(ai_gateway_exception_count_total{_f}[5m])))',
                   "legendFormat": "{{error_type}}", "refId": "A",
                   "instant": True, "queryType": "instant"}],
-                unit="short", grid=_grid(0, 0, 24, 8),
+                unit="short", grid=_grid(0, 0, 24, 8), show_value="always",
             ),
         ], True, "Error spikes during token streaming"),
     ])
@@ -1633,6 +1688,7 @@ def build_d4() -> dict:
         panels=panels,
         refresh="15s",
         variables=F.variables(),
+        nav_error=_nav_gateway_errors_5m(_f),
     )
 
 
@@ -1698,6 +1754,34 @@ def build_d5() -> dict:
             unit="short", decimals=1,
             thresholds=[{"color":"red","value":None},{"color":"yellow","value":6},{"color":"green","value":8}],
             grid=_grid(18, 0, 6, 4), datasource=DS_LOKI,
+        ),
+        stat_panel(
+            "AI — Errors (5m)",
+            f'sum(increase(ai_gateway_exception_count_total{_f}[5m])) or vector(0)',
+            unit="short", decimals=0,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 3},
+                {"color": "red", "value": 10},
+            ],
+            color_mode="value",
+            grid=_grid(12, 4, 6, 4),
+            graph_mode="none",
+            text_mode="value_and_name",
+        ),
+        stat_panel(
+            "AI — Evaluator Errors (24h)",
+            f'sum(count_over_time({_eval} |~ "mock_judge_timeout" [24h])) or on() vector(0)',
+            unit="short", decimals=0,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 10},
+            ],
+            color_mode="value",
+            grid=_grid(18, 4, 6, 4), datasource=DS_LOKI,
+            graph_mode="none",
+            text_mode="value_and_name",
         ),
     ]
 
@@ -1844,10 +1928,11 @@ def build_d5() -> dict:
     return dashboard(
         uid="ai-telemetry-quality",
         title="3. AI observability",
-        description="Model-specific latency, first-token latency, quality scores, and streaming performance.",
+        description="Model-specific latency, first-token latency, quality scores, AI error signals, and streaming performance.",
         tags=["ai-telemetry", "quality", "evaluation", "ai"],
         panels=panels,
         variables=F.variables(),
+        nav_error=_nav_gateway_errors_5m(_f, title="AI errors (5m)"),
     )
 
 
@@ -2022,6 +2107,16 @@ def build_d6() -> dict:
         tags=["ai-telemetry", "safety", "security", "pii", "compliance"],
         panels=panels,
         variables=F.variables(),
+        nav_error=nav_error_stat_panel(
+            "Safety alerts (24h)",
+            f'sum(count_over_time({_plog} | pii_detected="true" [24h])) or vector(0)',
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 25},
+            ],
+            datasource=DS_LOKI,
+        ),
     )
 
 
@@ -2058,6 +2153,63 @@ def build_d7() -> dict:
         f'sum(rate(ai_gateway_request_count_total{F.prom_error}[5m])) '
         f'/ clamp_min(sum(rate(ai_gateway_request_count_total{_f}[5m])), 1e-9) * 100'
     )
+    _error_tele = f'{_LOKI_STREAM} event_type="telemetry_event" {F.loki} | status="error"'
+
+    error_summary = [
+        stat_panel(
+            "Errors summary — API error rate",
+            _api_error_rate,
+            unit="percent", decimals=2,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 2},
+                {"color": "red", "value": 5},
+            ],
+            color_mode="value",
+            grid=_grid(0, 0, 6, 4), datasource=DS_PROMETHEUS,
+            graph_mode="none",
+            text_mode="value_and_name",
+        ),
+        stat_panel(
+            "Errors summary — Exceptions (1h)",
+            f'sum(increase(ai_gateway_exception_count_total{_f}[1h])) or vector(0)',
+            unit="short", decimals=0,
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 50},
+            ],
+            color_mode="value",
+            grid=_grid(6, 0, 6, 4), datasource=DS_PROMETHEUS,
+            graph_mode="none",
+            text_mode="value_and_name",
+        ),
+        barchart_panel(
+            "Errors summary — By type",
+            [{"datasource": DS_PROMETHEUS,
+              "expr": f'sort_desc(sum by (error_type) (increase(ai_gateway_exception_count_total{_f}[1h])))',
+              "legendFormat": "{{error_type}}", "refId": "A", "instant": True}],
+            unit="short", orientation="horizontal",
+            grid=_grid(12, 0, 6, 4), datasource=DS_PROMETHEUS,
+            show_value="always",
+        ),
+        piechart_panel(
+            "Errors summary — By category",
+            [{"datasource": DS_PROMETHEUS,
+              "expr": f'sort_desc(sum by (error_category) (increase(ai_gateway_exception_count_total{_f}[1h])))',
+              "legendFormat": "{{error_category}}", "refId": "A", "instant": True}],
+            grid=_grid(18, 0, 6, 4), datasource=DS_PROMETHEUS,
+            display_labels=["name", "percent"],
+        ),
+        logs_panel(
+            "Errors summary — Recent error logs",
+            f'{_error_tele} '
+            '| line_format "{{.timestamp}} [{{.model_name}}] {{.operation_name}} '
+            'type={{.error_type}} cat={{.error_category}} status={{.http_status_code}} '
+            'dept={{.department}} lat={{.latency_ms}}ms"',
+            grid=_grid(0, 4, 24, 6), datasource=DS_LOKI,
+        ),
+    ]
 
     headline = [
         stat_panel(
@@ -2065,44 +2217,46 @@ def build_d7() -> dict:
             _cpu_util,
             unit="percent", decimals=1,
             thresholds=[{"color": "green", "value": None}, {"color": "yellow", "value": 70}, {"color": "red", "value": 90}],
-            grid=_grid(0, 0, 4, 4),
+            grid=_grid(0, 10, 4, 4),
         ),
         stat_panel(
             "Model throughput",
             _model_throughput,
             unit="tps", decimals=1,
             thresholds=[{"color": "blue", "value": None}],
-            grid=_grid(4, 0, 4, 4),
+            grid=_grid(4, 10, 4, 4),
         ),
         stat_panel(
             "OOM failures",
             _oom_failures,
             unit="short", decimals=0,
             thresholds=[{"color": "green", "value": None}, {"color": "yellow", "value": 1}, {"color": "red", "value": 3}],
-            grid=_grid(8, 0, 4, 4),
+            grid=_grid(8, 10, 4, 4),
         ),
         stat_panel(
             "Pod/container health",
             _pod_health,
             unit="percent", decimals=1,
             thresholds=[{"color": "red", "value": None}, {"color": "yellow", "value": 80}, {"color": "green", "value": 95}],
-            grid=_grid(12, 0, 4, 4),
+            grid=_grid(12, 10, 4, 4),
         ),
         stat_panel(
             "Auto-scaling events",
             _scaling_events,
             unit="short", decimals=0,
             thresholds=[{"color": "blue", "value": None}],
-            grid=_grid(16, 0, 4, 4),
+            grid=_grid(16, 10, 4, 4),
         ),
         stat_panel(
             "API error rate",
             _api_error_rate,
             unit="percent", decimals=2,
             thresholds=[{"color": "green", "value": None}, {"color": "yellow", "value": 2}, {"color": "red", "value": 5}],
-            grid=_grid(20, 0, 4, 4),
+            grid=_grid(20, 10, 4, 4),
         ),
     ]
+
+    headline = error_summary + headline
 
     panels = build_dashboard_panels(headline, [
         ("Infrastructure Trends", [
@@ -2261,10 +2415,11 @@ def build_d7() -> dict:
     return dashboard(
         uid="ai-telemetry-infra",
         title="1. Infrastructure observability",
-        description="CPU utilization, model throughput, OOM failures, pod health, auto-scaling, and API error rates.",
+        description="Errors summary at top (API error rate, exceptions, recent logs), then CPU, throughput, OOM, pod health, auto-scaling, and API error rates.",
         tags=["ai-telemetry", "infrastructure", "kubernetes", "sre"],
         panels=panels,
         variables=F.variables(),
+        nav_error=_nav_gateway_errors_5m(_f),
     )
 
 
@@ -2581,6 +2736,16 @@ def build_d9() -> dict:
         tags=["ai-telemetry", "users", "sessions", "login"],
         panels=panels,
         variables=F.variables(),
+        nav_error=nav_error_stat_panel(
+            "User errors (24h)",
+            f'sum(count_over_time({_tele} | status="error" [24h])) or vector(0)',
+            thresholds=[
+                {"color": "green", "value": None},
+                {"color": "yellow", "value": 5},
+                {"color": "red", "value": 25},
+            ],
+            datasource=DS_LOKI,
+        ),
     )
 
 

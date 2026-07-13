@@ -157,7 +157,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 24,
+        "w": 18,
         "h": 3
       },
       "targets": [],
@@ -165,6 +165,78 @@
     },
     {
       "id": 2,
+      "type": "stat",
+      "title": "User errors (24h)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "red",
+                "value": 25
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
+        "text": {}
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki-ds"
+          },
+          "expr": "sum(count_over_time({service_name=~\".+\"} | json | event_type=\"telemetry_event\" | department=~\"$department\" | region=~\"$region\" | model_provider=~\"$provider\" | model_name=~\"$model\" | status=\"error\" [24h])) or vector(0)",
+          "refId": "A",
+          "queryType": "range",
+          "instant": false,
+          "range": true
+        }
+      ],
+      "description": "User request failures in the last 24 hours."
+    },
+    {
+      "id": 3,
       "type": "stat",
       "title": "Active users",
       "datasource": {
@@ -225,10 +297,10 @@
           "range": true
         }
       ],
-      "description": "Distinct `user_id` values in telemetry logs over the last 5 minutes (headline stat, last value). Source: Loki `telemetry_event`."
+      "description": "People using the system in the last 5 minutes."
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "stat",
       "title": "Active sessions",
       "datasource": {
@@ -289,10 +361,10 @@
           "range": true
         }
       ],
-      "description": "Distinct `session_id` values in telemetry logs over the last 5 minutes (headline stat, last value). Source: Loki `telemetry_event`."
+      "description": "Open sessions in the last 5 minutes."
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "stat",
       "title": "Logins (24h)",
       "datasource": {
@@ -353,10 +425,10 @@
           "range": true
         }
       ],
-      "description": "Count of `login_event` logs in 24h \u2014 emitted when a new session starts (turn 1)."
+      "description": "New sign-ins or session starts in the last 24 hours."
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "stat",
       "title": "Active users (24h)",
       "datasource": {
@@ -417,10 +489,10 @@
           "range": true
         }
       ],
-      "description": "Distinct `user_id` values with at least one `telemetry_event` in 24h."
+      "description": "People who used the system in the last 24 hours."
     },
     {
-      "id": 6,
+      "id": 7,
       "type": "stat",
       "title": "Monthly active users (30d)",
       "datasource": {
@@ -481,10 +553,10 @@
           "range": true
         }
       ],
-      "description": "Distinct users with a `login_event` in the last 30 days \u2014 monthly active user (MAU) proxy."
+      "description": "People who logged in at least once in the last 30 days."
     },
     {
-      "id": 7,
+      "id": 8,
       "type": "stat",
       "title": "LLM usage spike (15m vs prev 15m)",
       "datasource": {
@@ -553,10 +625,10 @@
           "range": true
         }
       ],
-      "description": "Percent change in total tokens: last 15m vs the prior 15m window (computed as [15m] \u00f7 ([30m] \u2212 [15m])). High values indicate sudden platform-wide LLM usage growth."
+      "description": "Sudden jump in token usage compared to the previous 15 minutes."
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "row",
       "title": "Login & user growth",
       "collapsed": false,
@@ -568,7 +640,7 @@
       },
       "panels": [
         {
-          "id": 9,
+          "id": 10,
           "type": "timeseries",
           "title": "Login track",
           "datasource": {
@@ -640,10 +712,10 @@
               "queryType": "range"
             }
           ],
-          "description": "Login/session-start events per 5m bucket from `login_event` logs."
+          "description": "Logins over time."
         },
         {
-          "id": 10,
+          "id": 11,
           "type": "stat",
           "title": "Daily active users (24h)",
           "datasource": {
@@ -704,10 +776,10 @@
               "range": true
             }
           ],
-          "description": "Distinct users with a `login_event` in the last 24h (stat with sparkline)."
+          "description": "People who logged in during the last 24 hours."
         },
         {
-          "id": 11,
+          "id": 12,
           "type": "barchart",
           "title": "Active users by department (24h)",
           "datasource": {
@@ -774,13 +846,13 @@
               "queryType": "instant"
             }
           ],
-          "description": "Distinct active users per `department` in the last 24h \u2014 ranked horizontal bars. The department filter is intentionally ignored so all departments are visible."
+          "description": "Active users per team in the last 24 hours."
         }
       ],
       "description": "Login activity and department-level user counts"
     },
     {
-      "id": 12,
+      "id": 13,
       "type": "row",
       "title": "Token consumption by user",
       "collapsed": true,
@@ -792,7 +864,7 @@
       },
       "panels": [
         {
-          "id": 13,
+          "id": 14,
           "type": "barchart",
           "title": "Top 10 users \u2014 tokens (24h)",
           "datasource": {
@@ -859,10 +931,10 @@
               "queryType": "instant"
             }
           ],
-          "description": "Users ranked by sum of `total_tokens` over 24h \u2014 who is consuming the most tokens."
+          "description": "Who used the most tokens in the last 24 hours."
         },
         {
-          "id": 14,
+          "id": 15,
           "type": "barchart",
           "title": "Top 10 users \u2014 token rate (5m)",
           "datasource": {
@@ -929,13 +1001,13 @@
               "queryType": "instant"
             }
           ],
-          "description": "Instant bar chart \u2014 top 10 users by tokens consumed in the last 5m."
+          "description": "Who is using the most tokens right now."
         }
       ],
       "description": "Heaviest token consumers by user"
     },
     {
-      "id": 15,
+      "id": 16,
       "type": "row",
       "title": "Session-level usage",
       "collapsed": true,
@@ -947,7 +1019,7 @@
       },
       "panels": [
         {
-          "id": 16,
+          "id": 17,
           "type": "barchart",
           "title": "Top 10 users \u2014 session time (6h)",
           "datasource": {
@@ -1014,10 +1086,10 @@
               "queryType": "instant"
             }
           ],
-          "description": "Users ranked by summed `session_time_ms` \u2014 wall-clock time spent in sessions (reading, typing, waiting), not per-request API latency."
+          "description": "Who spent the most time in sessions recently."
         },
         {
-          "id": 17,
+          "id": 18,
           "type": "table",
           "title": "Top users by tokens (6h)",
           "datasource": {
@@ -1074,10 +1146,10 @@
               }
             }
           ],
-          "description": "Table of top 50 users by total tokens in 6h, with department."
+          "description": "Heaviest token users in the last 6 hours."
         },
         {
-          "id": 18,
+          "id": 19,
           "type": "barchart",
           "title": "Session time by user (top 10, 5m)",
           "datasource": {
@@ -1144,13 +1216,13 @@
               "queryType": "instant"
             }
           ],
-          "description": "Instant bar chart \u2014 top 10 users by summed `session_time_ms` in the last 5m."
+          "description": "Who spent the most session time in the last 5 minutes."
         }
       ],
       "description": "Session duration and per-user token tables"
     },
     {
-      "id": 19,
+      "id": 20,
       "type": "row",
       "title": "Usage spikes",
       "collapsed": true,
@@ -1162,7 +1234,7 @@
       },
       "panels": [
         {
-          "id": 20,
+          "id": 21,
           "type": "timeseries",
           "title": "Token volume \u2014 spike detector (5m buckets)",
           "datasource": {
@@ -1244,10 +1316,10 @@
               "queryType": "range"
             }
           ],
-          "description": "Total token volume per 5m vs 1h average per 5m bucket \u2014 visual spike detection for LLM usage."
+          "description": "Token usage spikes compared to the recent average."
         },
         {
-          "id": 21,
+          "id": 22,
           "type": "barchart",
           "title": "Top 10 users \u2014 spike ratio (15m vs prev 15m)",
           "datasource": {
@@ -1314,10 +1386,10 @@
               "queryType": "instant"
             }
           ],
-          "description": "Per-user ratio: tokens in last 15m \u00f7 tokens in the previous 15m (30m window minus last 15m). Values above ~1.5 mean usage in the last 15m exceeds the prior 15m baseline."
+          "description": "Users whose usage jumped compared to the prior 15 minutes."
         },
         {
-          "id": 22,
+          "id": 23,
           "type": "logs",
           "title": "Recent login events",
           "datasource": {
@@ -1351,7 +1423,7 @@
               "legendFormat": ""
             }
           ],
-          "description": "Live stream of `login_event` logs with user, session, department, and auth method."
+          "description": "Latest sign-ins with user, team, and method."
         }
       ],
       "description": "Sudden usage spikes and recent login audit"

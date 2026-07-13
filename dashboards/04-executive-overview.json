@@ -199,7 +199,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 24,
+        "w": 18,
         "h": 3
       },
       "targets": [],
@@ -207,6 +207,77 @@
     },
     {
       "id": 2,
+      "type": "stat",
+      "title": "Errors (5m)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
+        "text": {}
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(ai_gateway_exception_count_total{department=~\"$department\",region=~\"$region\",model_provider=~\"$provider\",model_name=~\"$model\",operation_name=~\"$operation\",status=~\"$status\",environment=~\"$environment\"}[5m])) or vector(0)",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "description": "Failures in the last 5 minutes. Shown beside the tabs."
+    },
+    {
+      "id": 3,
       "type": "stat",
       "title": "Total requests",
       "datasource": {
@@ -269,7 +340,7 @@
       "description": "Single headline count for the selected time range with a sparkline trend. Source: Prometheus `increase(ai_gateway_request_count_total[$__range])`."
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "row",
       "title": "Traffic",
       "collapsed": false,
@@ -281,7 +352,7 @@
       },
       "panels": [
         {
-          "id": 4,
+          "id": 5,
           "type": "timeseries",
           "title": "RPM",
           "datasource": {
@@ -358,7 +429,7 @@
           "description": "Continuous requests-per-minute rate over time. Source: `rate(ai_gateway_request_count_total[$__rate_interval]) \u00d7 60`."
         },
         {
-          "id": 5,
+          "id": 6,
           "type": "timeseries",
           "title": "RPM by Model",
           "datasource": {
@@ -439,7 +510,7 @@
           "description": "Stacked area chart \u2014 top 6 models by RPM. Uses `$__rate_interval` for consistent smoothing across zoom levels."
         },
         {
-          "id": 6,
+          "id": 7,
           "type": "bargauge",
           "title": "RPM by Model (current)",
           "datasource": {
@@ -490,7 +561,7 @@
           "description": "Top 6 models by current requests/min \u2014 ranked bar gauge snapshot."
         },
         {
-          "id": 7,
+          "id": 8,
           "type": "piechart",
           "title": "RPM Share by Model",
           "datasource": {
@@ -560,7 +631,7 @@
       "description": "Request rate, model split, and share"
     },
     {
-      "id": 8,
+      "id": 9,
       "type": "row",
       "title": "Errors",
       "collapsed": false,
@@ -572,7 +643,7 @@
       },
       "panels": [
         {
-          "id": 9,
+          "id": 10,
           "type": "timeseries",
           "title": "Error RPM by Model",
           "datasource": {
@@ -653,7 +724,7 @@
           "description": "Failed requests per minute per model (top 6). Source: `ai_gateway_exception_count_total`."
         },
         {
-          "id": 10,
+          "id": 11,
           "type": "timeseries",
           "title": "Error Rate by Model",
           "datasource": {
@@ -757,7 +828,7 @@
       "description": "Failed requests per minute and error rate by model"
     },
     {
-      "id": 11,
+      "id": 12,
       "type": "row",
       "title": "Model mix",
       "collapsed": true,
@@ -769,7 +840,7 @@
       },
       "panels": [
         {
-          "id": 12,
+          "id": 13,
           "type": "piechart",
           "title": "Model Provider Distribution",
           "datasource": {
@@ -833,10 +904,10 @@
               "instant": true
             }
           ],
-          "description": "Share of requests by vendor (`model_provider`: anthropic, openai, google, etc.) over the last hour."
+          "description": "Traffic split across vendors (e.g. Anthropic, OpenAI, Google)."
         },
         {
-          "id": 13,
+          "id": 14,
           "type": "bargauge",
           "title": "Model Distribution (last 1h)",
           "datasource": {
@@ -884,13 +955,13 @@
               "refId": "A"
             }
           ],
-          "description": "Ranked horizontal bar gauge of request volume by `model_name` over the last hour \u2014 model names on the left, values on the bars."
+          "description": "Which models handled the most requests in the last hour."
         }
       ],
       "description": "Provider and model distribution over the last hour"
     },
     {
-      "id": 14,
+      "id": 15,
       "type": "row",
       "title": "Traffic Volume",
       "collapsed": true,
@@ -902,7 +973,7 @@
       },
       "panels": [
         {
-          "id": 15,
+          "id": 16,
           "type": "timeseries",
           "title": "Requests / min by Model",
           "datasource": {
@@ -975,10 +1046,10 @@
               "range": true
             }
           ],
-          "description": "Live request rate per model (`rate \u00d7 60`). Filtered by department template variable when set."
+          "description": "Live request rate for each model."
         },
         {
-          "id": 16,
+          "id": 17,
           "type": "timeseries",
           "title": "Requests / min by Department",
           "datasource": {
@@ -1051,10 +1122,10 @@
               "range": true
             }
           ],
-          "description": "Live request rate per `department` \u2014 which org teams drive load."
+          "description": "Live request rate for each team or department."
         },
         {
-          "id": 17,
+          "id": 18,
           "type": "timeseries",
           "title": "Requests / min by Operation",
           "datasource": {
@@ -1127,10 +1198,10 @@
               "range": true
             }
           ],
-          "description": "Traffic by `operation_name` (e.g. chat_completion, code_generation) \u2014 use-case mix."
+          "description": "Live request rate by use case (e.g. chat, code)."
         },
         {
-          "id": 18,
+          "id": 19,
           "type": "piechart",
           "title": "Model Distribution (last 1h)",
           "datasource": {
@@ -1194,10 +1265,10 @@
               "instant": true
             }
           ],
-          "description": "Ranked horizontal bar gauge of request volume by `model_name` over the last hour \u2014 model names on the left, values on the bars."
+          "description": "Which models handled the most requests in the last hour."
         },
         {
-          "id": 19,
+          "id": 20,
           "type": "piechart",
           "title": "Model Provider Distribution",
           "datasource": {
@@ -1261,13 +1332,13 @@
               "instant": true
             }
           ],
-          "description": "Share of requests by vendor (`model_provider`: anthropic, openai, google, etc.) over the last hour."
+          "description": "Traffic split across vendors (e.g. Anthropic, OpenAI, Google)."
         }
       ],
       "description": "Traffic volume by model, department, and operation"
     },
     {
-      "id": 20,
+      "id": 21,
       "type": "row",
       "title": "Errors & Retries",
       "collapsed": true,
@@ -1279,7 +1350,7 @@
       },
       "panels": [
         {
-          "id": 21,
+          "id": 22,
           "type": "timeseries",
           "title": "Error Rate by Type",
           "datasource": {
@@ -1352,10 +1423,10 @@
               "range": true
             }
           ],
-          "description": "Failed requests per second by `error_type` (rate_limit, timeout, model_unavailable, etc.)."
+          "description": "Failures over time, split by error type."
         },
         {
-          "id": 22,
+          "id": 23,
           "type": "barchart",
           "title": "Errors by HTTP Status Code (last 1h)",
           "datasource": {
@@ -1391,7 +1462,7 @@
             "groupWidth": 0.7,
             "barWidth": 0.9,
             "fullHighlight": false,
-            "showValue": "auto",
+            "showValue": "always",
             "stacking": "none",
             "tooltip": {
               "mode": "single",
@@ -1421,10 +1492,10 @@
               "instant": true
             }
           ],
-          "description": "Volume of exceptions in the last hour grouped by `http_status` (429, 504, 500, \u2026)."
+          "description": "Failures by HTTP code (e.g. 429, 500). Tallest bar = most common."
         },
         {
-          "id": 23,
+          "id": 24,
           "type": "piechart",
           "title": "Error Category Mix",
           "datasource": {
@@ -1449,7 +1520,10 @@
           },
           "options": {
             "pieType": "pie",
-            "displayLabels": [],
+            "displayLabels": [
+              "name",
+              "percent"
+            ],
             "reduceOptions": {
               "calcs": [
                 "lastNotNull"
@@ -1488,13 +1562,13 @@
               "instant": true
             }
           ],
-          "description": "Failures grouped by `error_category` (throttling, availability, auth, validation)."
+          "description": "Failures by category. Biggest slice = main issue."
         }
       ],
       "description": "Error types, HTTP status codes, and categories"
     },
     {
-      "id": 24,
+      "id": 25,
       "type": "row",
       "title": "SLA Compliance",
       "collapsed": true,
@@ -1506,7 +1580,7 @@
       },
       "panels": [
         {
-          "id": 25,
+          "id": 26,
           "type": "timeseries",
           "title": "SLA Breach Rate by Department",
           "datasource": {
@@ -1579,10 +1653,10 @@
               "range": true
             }
           ],
-          "description": "Per-department error rate (%): requests with `status=error` \u00f7 all requests. High values mean that department is missing SLA targets."
+          "description": "Percent of failed requests per department. High means missing targets."
         },
         {
-          "id": 26,
+          "id": 27,
           "type": "barchart",
           "title": "Total Requests by Routing Reason (last 1h)",
           "datasource": {
@@ -1649,13 +1723,13 @@
               "queryType": "instant"
             }
           ],
-          "description": "Why the gateway chose a model (`routing_reason` from logs): cost, latency, fallback, policy, etc. Source: Loki `telemetry_event`."
+          "description": "Why each model was chosen (cost, speed, fallback, etc.)."
         }
       ],
       "description": "Department SLA breach rate and routing mix"
     },
     {
-      "id": 27,
+      "id": 28,
       "type": "row",
       "title": "Live Request Log",
       "collapsed": true,
@@ -1667,7 +1741,7 @@
       },
       "panels": [
         {
-          "id": 28,
+          "id": 29,
           "type": "logs",
           "title": "Live Telemetry Events",
           "datasource": {
@@ -1701,7 +1775,7 @@
               "legendFormat": ""
             }
           ],
-          "description": "Streaming audit of recent `telemetry_event` log lines \u2014 request id, model, latency, department, routing. Use for live debugging; not aggregated metrics."
+          "description": "Live stream of recent requests for debugging."
         }
       ],
       "description": "Real-time telemetry event stream"

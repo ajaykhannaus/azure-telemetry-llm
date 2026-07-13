@@ -178,7 +178,7 @@
       "gridPos": {
         "x": 0,
         "y": 0,
-        "w": 24,
+        "w": 18,
         "h": 3
       },
       "targets": [],
@@ -186,6 +186,77 @@
     },
     {
       "id": 2,
+      "type": "stat",
+      "title": "Errors (5m)",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus-ds"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 10
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "textMode": "value_and_name",
+        "wideLayout": true,
+        "showPercentChange": false,
+        "percentChangeColorMode": "standard",
+        "text": {}
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 3
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus-ds"
+          },
+          "expr": "sum(increase(ai_gateway_exception_count_total{department=~\"$department\",region=~\"$region\",model_provider=~\"$provider\",model_name=~\"$model\",operation_name=~\"$operation\",environment=~\"$environment\"}[5m])) or vector(0)",
+          "refId": "A",
+          "range": true,
+          "instant": false
+        }
+      ],
+      "description": "Failures in the last 5 minutes. Shown beside the tabs."
+    },
+    {
+      "id": 3,
       "type": "stat",
       "title": "Output tokens",
       "datasource": {
@@ -245,10 +316,10 @@
           "instant": false
         }
       ],
-      "description": "Total completion (output) tokens consumed in the selected time range."
+      "description": "Total AI output tokens in the selected time range."
     },
     {
-      "id": 3,
+      "id": 4,
       "type": "stat",
       "title": "Avg tokens / request",
       "datasource": {
@@ -308,10 +379,10 @@
           "instant": false
         }
       ],
-      "description": "Average prompt + completion + cache tokens per request."
+      "description": "Average tokens used per request."
     },
     {
-      "id": 4,
+      "id": 5,
       "type": "stat",
       "title": "Context fill",
       "datasource": {
@@ -380,10 +451,10 @@
           "range": true
         }
       ],
-      "description": "Average context window utilization % \u2014 how full prompts are across models."
+      "description": "How full the model's context window is on average. Very high may truncate input."
     },
     {
-      "id": 5,
+      "id": 6,
       "type": "stat",
       "title": "Errors (5m)",
       "datasource": {
@@ -425,9 +496,9 @@
           ]
         },
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "center",
-        "textMode": "auto",
+        "textMode": "value_and_name",
         "wideLayout": true,
         "showPercentChange": false,
         "percentChangeColorMode": "standard",
@@ -451,10 +522,10 @@
           "instant": false
         }
       ],
-      "description": "Exception count increase in the last 5 minutes."
+      "description": "Failures in the last 5 minutes. Shown beside the tabs."
     },
     {
-      "id": 6,
+      "id": 7,
       "type": "row",
       "title": "Cost",
       "collapsed": false,
@@ -466,7 +537,7 @@
       },
       "panels": [
         {
-          "id": 7,
+          "id": 8,
           "type": "timeseries",
           "title": "Cost per request",
           "datasource": {
@@ -548,10 +619,10 @@
               "queryType": "range"
             }
           ],
-          "description": "Average USD cost per request from log field `cost_usd`. Source: Loki `telemetry_event` (synthetic generator computes per-model pricing)."
+          "description": "Average dollar cost of one request."
         },
         {
-          "id": 8,
+          "id": 9,
           "type": "timeseries",
           "title": "Cost per user/session",
           "datasource": {
@@ -624,10 +695,10 @@
               "range": true
             }
           ],
-          "description": "Average cost per request over time \u2014 `increase(cost) / increase(requests)` from Prometheus (Loki per-user ratios exceed local query resolution limits in range mode)."
+          "description": "Average cost per request over time."
         },
         {
-          "id": 9,
+          "id": 10,
           "type": "timeseries",
           "title": "Daily/monthly spend",
           "datasource": {
@@ -711,13 +782,13 @@
               "range": true
             }
           ],
-          "description": "Total USD spent: 24h and 30d `increase` on `ai_gateway_request_cost_USD_total`."
+          "description": "Total spend in the last day and last month."
         }
       ],
       "description": "Per-request cost and daily/monthly spend totals"
     },
     {
-      "id": 10,
+      "id": 11,
       "type": "row",
       "title": "Cost breakdown",
       "collapsed": true,
@@ -729,7 +800,7 @@
       },
       "panels": [
         {
-          "id": 11,
+          "id": 12,
           "type": "piechart",
           "title": "Cost by department",
           "datasource": {
@@ -793,10 +864,10 @@
               "instant": true
             }
           ],
-          "description": "Share of 24h LLM spend by internal department (`department` label). Each user belongs to one department within the organization."
+          "description": "Which teams spent the most in the last 24 hours."
         },
         {
-          "id": 12,
+          "id": 13,
           "type": "barchart",
           "title": "Model-wise cost breakdown",
           "datasource": {
@@ -862,13 +933,13 @@
               "instant": true
             }
           ],
-          "description": "24h spend ranked by `model_name` \u2014 which models are most expensive."
+          "description": "Spend ranked by model."
         }
       ],
       "description": "Department and model cost distribution"
     },
     {
-      "id": 13,
+      "id": 14,
       "type": "row",
       "title": "Savings",
       "collapsed": true,
@@ -880,7 +951,7 @@
       },
       "panels": [
         {
-          "id": 14,
+          "id": 15,
           "type": "timeseries",
           "title": "Cache hit savings",
           "datasource": {
@@ -962,13 +1033,13 @@
               "queryType": "range"
             }
           ],
-          "description": "USD saved via prompt cache hits (`cache_savings_usd` in logs). Higher values mean caching is reducing billable prompt tokens."
+          "description": "Money saved by reusing cached prompt content."
         }
       ],
       "description": "USD saved from cache hits"
     },
     {
-      "id": 15,
+      "id": 16,
       "type": "row",
       "title": "Output throughput",
       "collapsed": false,
@@ -980,7 +1051,7 @@
       },
       "panels": [
         {
-          "id": 16,
+          "id": 17,
           "type": "timeseries",
           "title": "Output Token Count",
           "datasource": {
@@ -1058,10 +1129,10 @@
               "range": true
             }
           ],
-          "description": "Stacked completion-token throughput by model \u2014 each band is one model's share."
+          "description": "Output tokens over time, split by model."
         },
         {
-          "id": 17,
+          "id": 18,
           "type": "bargauge",
           "title": "Output tokens by model (now)",
           "datasource": {
@@ -1109,13 +1180,13 @@
               "refId": "A"
             }
           ],
-          "description": "Instantaneous completion tokens/s per model \u2014 ranked horizontal bar gauge."
+          "description": "Current output speed by model."
         }
       ],
       "description": "Token generation rate by model"
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "row",
       "title": "Request composition",
       "collapsed": true,
@@ -1127,7 +1198,7 @@
       },
       "panels": [
         {
-          "id": 19,
+          "id": 20,
           "type": "piechart",
           "title": "Token type mix",
           "datasource": {
@@ -1191,10 +1262,10 @@
               "instant": true
             }
           ],
-          "description": "Donut chart of prompt vs completion vs cache_read tokens in the last hour."
+          "description": "Split between input, output, and cached tokens."
         },
         {
-          "id": 20,
+          "id": 21,
           "type": "timeseries",
           "title": "Total tokens per request",
           "datasource": {
@@ -1268,10 +1339,10 @@
               "range": true
             }
           ],
-          "description": "Average total tokens per request over time (single aggregate trend line)."
+          "description": "Average total tokens per request over time."
         },
         {
-          "id": 21,
+          "id": 22,
           "type": "bargauge",
           "title": "Prompt size by model",
           "datasource": {
@@ -1319,13 +1390,13 @@
               "refId": "A"
             }
           ],
-          "description": "Average prompt tokens per request ranked by model \u2014 horizontal bar gauge."
+          "description": "Average input size by model."
         }
       ],
       "description": "Prompt vs completion token mix"
     },
     {
-      "id": 22,
+      "id": 23,
       "type": "row",
       "title": "Context window",
       "collapsed": true,
@@ -1337,7 +1408,7 @@
       },
       "panels": [
         {
-          "id": 23,
+          "id": 24,
           "type": "gauge",
           "title": "Context Window Utilization (%)",
           "datasource": {
@@ -1402,10 +1473,10 @@
               "range": true
             }
           ],
-          "description": "Dial gauge of average context window fill \u2014 high values risk truncation."
+          "description": "How full prompts are on average. High means little room left."
         },
         {
-          "id": 24,
+          "id": 25,
           "type": "bargauge",
           "title": "Context fill by model",
           "datasource": {
@@ -1471,10 +1542,10 @@
               "queryType": "instant"
             }
           ],
-          "description": "Context window utilization % ranked by model."
+          "description": "How full each model's context window is."
         },
         {
-          "id": 25,
+          "id": 26,
           "type": "timeseries",
           "title": "Prompt size trend",
           "datasource": {
@@ -1548,13 +1619,13 @@
               "range": true
             }
           ],
-          "description": "Average prompt (input) tokens per request over time \u2014 drives cost and latency."
+          "description": "Average input size over time. Larger prompts cost more and can be slower."
         }
       ],
       "description": "Context window fill and prompt size trends"
     },
     {
-      "id": 26,
+      "id": 27,
       "type": "row",
       "title": "Streaming throughput & errors",
       "collapsed": true,
@@ -1566,7 +1637,7 @@
       },
       "panels": [
         {
-          "id": 27,
+          "id": 28,
           "type": "barchart",
           "title": "Errors by type (5m)",
           "datasource": {
@@ -1602,7 +1673,7 @@
             "groupWidth": 0.7,
             "barWidth": 0.9,
             "fullHighlight": false,
-            "showValue": "auto",
+            "showValue": "always",
             "stacking": "none",
             "tooltip": {
               "mode": "single",
@@ -1633,7 +1704,7 @@
               "queryType": "instant"
             }
           ],
-          "description": "Bar chart of exceptions in the last 5m broken down by `error_type`."
+          "description": "Failures in the last 5 minutes by type. Longest bar = main problem."
         }
       ],
       "description": "Error spikes during token streaming"
