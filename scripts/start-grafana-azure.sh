@@ -100,11 +100,34 @@ if [[ "$LOGS_ONLY" == "true" ]]; then
 fi
 
 # --- Start the app if it is not already Running --------------------------------
+# `az containerapp start` needs a recent containerapp extension. On older CLIs it
+# errors with "'start' is misspelled or not recognized". Handle that: upgrade the
+# extension once and retry, then fall back to forcing a running revision via
+# `update` (works on any CLI that can deploy the app at all).
+start_app() {
+  local err=/tmp/sg_start_err.$$
+  if az containerapp start -n "$APP" -g "$RG" -o none 2>"$err"; then
+    rm -f "$err"; return 0
+  fi
+  if grep -qiE "misspelled|not recognized|not a[n]? .*command|unrecognized" "$err"; then
+    log "'az containerapp start' unavailable in this CLI — upgrading containerapp extension..."
+    az extension add --upgrade --name containerapp -y -o none 2>/dev/null \
+      || az extension add --name containerapp -y -o none 2>/dev/null || true
+    if az containerapp start -n "$APP" -g "$RG" -o none 2>"$err"; then
+      rm -f "$err"; return 0
+    fi
+  fi
+  log "start still unavailable/failed — forcing a running revision via update (min/max replicas=1)..."
+  if az containerapp update -n "$APP" -g "$RG" --min-replicas 1 --max-replicas 1 -o none 2>"$err"; then
+    rm -f "$err"; return 0
+  fi
+  log "update fallback failed:"; sed 's/^/    /' "$err" >&2; rm -f "$err"; return 1
+}
+
 STATUS="$(running_status)"
 if [[ "$STATUS" != "Running" ]]; then
   log "runningStatus=$STATUS -> starting app..."
-  az containerapp start -n "$APP" -g "$RG" -o none \
-    || fail "az containerapp start failed."
+  start_app || fail "Could not start Grafana (start + extension-upgrade + update all failed)."
 else
   log "App already reports Running."
 fi
