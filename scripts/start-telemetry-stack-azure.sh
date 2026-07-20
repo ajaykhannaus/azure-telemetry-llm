@@ -85,13 +85,13 @@ log "RG: $RG   Sub: $SUB"
 
 if [[ "$STATUS_ONLY" == "true" ]]; then
   printf '%-32s %s\n' "APP" "runningStatus"
-  for app in "${APPS[@]}"; do printf '%-32s %s\n' "$app" "$(running_status)"; done
+  for app in "${APPS[@]}"; do printf '%-32s %s\n' "$app" "$(running_status "$app")"; done
   exit 0
 fi
 
 failed=()
 for app in "${APPS[@]}"; do
-  st="$(running_status)"
+  st="$(running_status "$app")"
   if [[ "$st" == "Missing" ]]; then
     log "SKIP $app (not found in $RG)"
     continue
@@ -113,7 +113,7 @@ echo ""
 log "Post-start status (allow ~30-90s for replicas + first scrape/flush):"
 printf '%-32s %s\n' "APP" "runningStatus"
 for app in "${APPS[@]}"; do
-  st="$(running_status)"; [[ "$st" == "Missing" ]] && continue
+  st="$(running_status "$app")"; [[ "$st" == "Missing" ]] && continue
   printf '%-32s %s\n' "$app" "$st"
 done
 
