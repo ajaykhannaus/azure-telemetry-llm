@@ -106,22 +106,40 @@ fi
 # `update` (works on any CLI that can deploy the app at all).
 start_app() {
   local err=/tmp/sg_start_err.$$
+
+  # 1. Preferred: the containerapp CLI start command (recent extension).
   if az containerapp start -n "$APP" -g "$RG" -o none 2>"$err"; then
     rm -f "$err"; return 0
   fi
-  if grep -qiE "misspelled|not recognized|not a[n]? .*command|unrecognized" "$err"; then
-    log "'az containerapp start' unavailable in this CLI — upgrading containerapp extension..."
-    az extension add --upgrade --name containerapp -y -o none 2>/dev/null \
-      || az extension add --name containerapp -y -o none 2>/dev/null || true
-    if az containerapp start -n "$APP" -g "$RG" -o none 2>"$err"; then
-      rm -f "$err"; return 0
+
+  # 2. Most reliable: call the ARM Start action directly via `az rest` (core CLI,
+  #    no containerapp extension needed). This un-stops an explicitly Stopped app
+  #    even when `az containerapp start` is missing — which `update` does NOT do.
+  local sub="${AZURE_SUBSCRIPTION_ID:-$(az account show --query id -o tsv 2>/dev/null)}"
+  local arm="https://management.azure.com/subscriptions/${sub}/resourceGroups/${RG}/providers/Microsoft.App/containerApps/${APP}"
+  local ok=false
+  for api in 2024-03-01 2023-05-01 2022-10-01; do
+    log "un-stopping via ARM start action (api-version=$api)..."
+    if az rest --method post --url "${arm}/start?api-version=${api}" -o none 2>"$err"; then
+      ok=true; break
     fi
+  done
+  if [[ "$ok" == "true" ]]; then rm -f "$err"; return 0; fi
+
+  # 3. Try upgrading the containerapp extension, then the CLI start once more.
+  log "ARM start action failed — upgrading containerapp extension and retrying..."
+  az extension add --upgrade --name containerapp -y -o none 2>/dev/null \
+    || az extension add --name containerapp -y -o none 2>/dev/null || true
+  if az containerapp start -n "$APP" -g "$RG" -o none 2>"$err"; then
+    rm -f "$err"; return 0
   fi
-  log "start still unavailable/failed — forcing a running revision via update (min/max replicas=1)..."
+
+  # 4. Last resort: force a fresh revision (only helps if the app is not hard-stopped).
+  log "forcing a running revision via update (min/max replicas=1)..."
   if az containerapp update -n "$APP" -g "$RG" --min-replicas 1 --max-replicas 1 -o none 2>"$err"; then
     rm -f "$err"; return 0
   fi
-  log "update fallback failed:"; sed 's/^/    /' "$err" >&2; rm -f "$err"; return 1
+  log "all start strategies failed:"; sed 's/^/    /' "$err" >&2; rm -f "$err"; return 1
 }
 
 STATUS="$(running_status)"
