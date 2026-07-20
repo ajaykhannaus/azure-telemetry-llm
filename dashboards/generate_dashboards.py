@@ -787,10 +787,35 @@ def build_dashboard_panels(
         else:
             title, section_panels, collapsed = entry
             desc = None
-        row = accordion_section(title, section_panels, collapsed=collapsed, description=desc)
-        row["gridPos"] = {"x": 0, "y": y, "w": 24, "h": 1}
-        result.append(row)
-        y += 1
+        if collapsed:
+            # Collapsed row: nest children in row.panels (Grafana renders them
+            # only when the row is expanded by the user).
+            row = accordion_section(title, section_panels, collapsed=True, description=desc)
+            row["gridPos"] = {"x": 0, "y": y, "w": 24, "h": 1}
+            result.append(row)
+            y += 1
+        else:
+            # Expanded row: Grafana 11 does NOT render row.panels when
+            # collapsed=false — it shows "(0 panels)". Emit an empty-panels row
+            # and promote the children to top-level siblings with absolute y.
+            row = {
+                "id": _next_id(), "type": "row", "title": title,
+                "collapsed": False,
+                "gridPos": {"x": 0, "y": y, "w": 24, "h": 1}, "panels": [],
+            }
+            if desc:
+                row["description"] = desc
+            result.append(row)
+            y += 1
+            section_h = 0
+            for panel in _normalize_section_panels(section_panels):
+                cp = dict(panel)
+                gp = dict(panel["gridPos"])
+                gp["y"] = y + gp["y"]
+                cp["gridPos"] = gp
+                result.append(cp)
+                section_h = max(section_h, gp["y"] + gp["h"] - y)
+            y += section_h
 
     return result
 
